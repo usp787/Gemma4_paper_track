@@ -10,6 +10,12 @@ This folder holds the baseline arms of the [OPSD study](../opsd_assessment.md): 
 
 **The model is complete again.** `/scratch/$USER/gemma4/models/gemma-4-31b-it-qat-w4a16-ct` had held 0 bytes since 2026-10-07 13:19 EDT. `fetch_model` (job 10927935) re-downloaded it on 2026-10-08, 17:13–17:19 EDT: `model.safetensors` is 23,265,352,448 bytes, and `chat_template.jinja` is the June one (16,934 bytes). The weights live on scratch, not in either checkout, so both tracks read the same copy. If `opsd_baselines.sh status` ever reports the model incomplete again, rerun `cd ~/Gemma4_kaggle_repo && sbatch slurm/fetch_model.slurm` (CPU, up to 2 h).
 
+**The split and the train check are done (2026-10-08).**
+- `split` (job 10928660) wrote the five split files to `/scratch/$USER/gemma4/paper/split/`. Its first try (10928412) died of a broken pipe in `srun` before Python started, which is why `split` is now a batch job.
+- The train check (job 10928765) took 6 min. Every training task's sandbox started in both modes: gold resolved 41/59 and empty 2/59, so 39 are sound, and no task's result changed since 2026-09-29.
+  - Results: `/scratch/$USER/gemma4/results/opsd_train_check_10928765/`.
+  - Its log went to `/scratch/$USER/gemma4/paper/logs/`, from before logs moved to this repo's `logs/`.
+
 | Arm | Agent (zip sha256) | What it is | Runs: resolved of the 70 dev tasks | Kaggle | Next |
 |---|---|---|---|---|---|
 | `off` | `baseline_nothink` (3909932c84e0) | thinking off; the host's sample prompt, temperature 0.2, 60 calls | `baseline_nothink_v28_zip` **19** (10-05) | 3/58 | run 2, if `off` becomes the student |
@@ -49,8 +55,8 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
 | # | Command | What it does | Cost |
 |---|---|---|---|
 | 0 | `cd ~/Gemma4_kaggle_repo && sbatch slurm/fetch_model.slurm` | the model: done 2026-10-08 (job 10927935); rerun only if `status` reports it incomplete | CPU, ≤ 2 h |
-| 0a | `GO=1 bash baseline/opsd_baselines.sh split` | the split files, on scratch | CPU, ~1 min |
-| 0b | `GO=1 bash baseline/opsd_baselines.sh check-train` | gold and empty patches on the 59 training tasks: do their sandboxes still start? | CPU, ~1 h |
+| 0a | `GO=1 bash baseline/opsd_baselines.sh split` | the split files, on scratch: done 2026-10-08 (job 10928660) | CPU, ~1 min |
+| 0b | `GO=1 bash baseline/opsd_baselines.sh check-train` | gold and empty patches on the 59 training tasks: do their sandboxes still start? Done 2026-10-08 (job 10928765): all start, 39 sound | CPU, 6 min |
 | 1 | `GO=1 bash baseline/opsd_baselines.sh run v1` | `v1`'s first run, through the main track's chain (check, smoke, gate, run, report against `off`) | ~3.5 h, ~6 L40S-h |
 | 2 | `GO=1 bash baseline/opsd_baselines.sh run v1` | `v1`'s second run, then its report | ~2.5 h, ~5 L40S-h |
 | 3 | `GO=1 bash baseline/opsd_baselines.sh run v2` | `v2`'s second run | ~2.5 h, ~5 L40S-h |
@@ -76,9 +82,13 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
 
 - **Clone this repo next to the main one,** over SSH as `~/Gemma4_kaggle_repo` was: `git clone git@github.com:usp787/Gemma4_paper_track.git ~/Gemma4_paper_track`. The HTTPS URL also works from Explorer (both checked with `git ls-remote`, 2026-10-08).
 - **Before each command, `git pull` in both checkouts.** A job sees only pushed code, as in the main repo.
+- **Logs go to this repo's `logs/`,** as `<job name>_<id>.out` (and `.err`). Git ignores them, since they name task ids.
+  - That covers every job `opsd_baselines.sh` queues itself: `split`, `check-train`, `report`, and a later run's report (`diagnose`). Each command prints its log's path.
+  - The main track's chain writes its own logs (check, smoke, gate, driver, shards, a first run's report) to `~/Gemma4_kaggle_repo/logs/`. `opsd_baselines.sh` links that folder in as `logs/main_track/`, so every log can be reached from here.
+  - `logs/main_track/` is a link: deleting files inside it deletes the main track's logs.
 - **Outputs go to scratch:**
-  - the split, the train check's logs and the reports in `/scratch/$USER/gemma4/paper/`;
-  - the runs in `/scratch/$USER/gemma4/results/<run>/`, as for the main track.
+  - the split and the reports in `/scratch/$USER/gemma4/paper/`;
+  - the train check's results and the runs in `/scratch/$USER/gemma4/results/<run>/`, as for the main track.
 - **No task ids go into this repo.** They come from the competition's `tasks.jsonl`, and the README's data rule applies.
 
 ## What every run shares
@@ -138,13 +148,14 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
   - run A against `off` gives 8 better and 2 worse, p = 0.109;
   - A takes 214 s per task, and `off`'s first source edit comes at 47 s.
   - A synthetic run checks the thinking count, the output tokens and the time span.
-- **`opsd_baselines.sh`, against stub `sbatch`, `squeue` and `srun` and stub main-track scripts:**
+- **`opsd_baselines.sh`, against stub `sbatch` and `squeue` and stub main-track scripts** (40 checks, rerun after the logs moved to `logs/`):
   - status;
   - a first run: dry, `GO=1`, and blocked by a busy queue;
-  - a later run, with `AFTER` and its report job;
-  - a third `on` run with its Kaggle score;
+  - a later run, with `AFTER` and its report job, and a later `off` run with its Kaggle score;
   - a run without a summary, then `FORCE=1`;
-  - an unknown arm;
-  - `split`, `check-train` and `report`.
+  - an unknown arm and an unknown command;
+  - `split`, `check-train` and `report`: dry, `GO=1`, a failing job, and `check-train` before the split;
+  - the logs: each job's log lands in `logs/`, which is made if missing, and `logs/main_track` reaches the main track's logs without nesting on a second call;
+  - `srun` is never called.
 - **`make_split.py`,** on synthetic ids (70 / 59 / 39 / 20), and with a dev task outside the sound set, which it refuses.
 - `bash -n` and `py_compile` on every script.

@@ -13,7 +13,7 @@ Per arm, on the 70 dev tasks:
   Gemma 4's <|channel> ... <channel|> block (ids 100 and 101), counted as baseline/diagnose_run.py counts it.
 
 Only unpaced runs in the PINS=1 env count, as every v28 baseline is. Any other run is listed and left out.
-stdlib only. On Explorer it runs through srun (opsd_baselines.sh report). Locally it runs on pulled run dirs,
+stdlib only. On Explorer it runs as a short sbatch job (opsd_baselines.sh report). Locally it runs on pulled run dirs,
 where traces and task_results.jsonl suffice:
     python baseline_report.py [--results DIR] [--ids FILE] [--arms FILE] [--json OUT]
 """

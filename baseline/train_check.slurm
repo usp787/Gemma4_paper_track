@@ -4,8 +4,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=01:30:00
-#SBATCH --output=/scratch/%u/gemma4/paper/logs/%x_%j.out
-#SBATCH --error=/scratch/%u/gemma4/paper/logs/%x_%j.err
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
 
 # Do the 59 OPSD training tasks still run in today's env? CPU only, no model.
 # - The grader check behind the sound set (10686757, 2026-09-29) ran before wheelhouse v28 rebuilt the harness.
@@ -14,7 +14,8 @@
 #   in the PINS=1 env, as baseline/grader_check.slurm does for all 129 tasks.
 # - A task whose sandbox can't start shows up with an error in both modes. Sound = gold resolves and empty doesn't.
 #   Expected: 39 sound (the rich holdout), and the 20 tasks known to be unsound.
-# Needs the split files (opsd_baselines.sh split). opsd_baselines.sh check-train submits it:
+# Needs the split files (opsd_baselines.sh split). opsd_baselines.sh check-train submits it, with both logs in this
+# repo's logs/. Submitted by hand, it must start from the repo root, where logs/ is:
 #   sbatch --export=ALL,MAIN=$HOME/Gemma4_kaggle_repo baseline/train_check.slurm
 
 MAIN=${MAIN:-$HOME/Gemma4_kaggle_repo}

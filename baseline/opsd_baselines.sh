@@ -3,9 +3,9 @@
 # scored the way the main track scores: the 70 dev-sound tasks, PINS=1, unpaced, one task at a time on an L40S.
 #   bash baseline/opsd_baselines.sh status        prerequisites, then each arm's runs and what comes next
 #   bash baseline/opsd_baselines.sh run <arm>     queue the arm's next run (arms.tsv)
-#   bash baseline/opsd_baselines.sh split         write the train/dev split files (make_split.py, through srun)
+#   bash baseline/opsd_baselines.sh split         write the train/dev split files (make_split.py, a 1-min job)
 #   bash baseline/opsd_baselines.sh check-train   gold and empty patches on the train split (train_check.slurm)
-#   bash baseline/opsd_baselines.sh report        the cross-arm tables (baseline_report.py, through srun)
+#   bash baseline/opsd_baselines.sh report        the cross-arm tables (baseline_report.py, a short job)
 # Nothing is queued without GO=1. By default each command prints what it would run, and what blocks it.
 # - An arm's first run goes through the main track's chain, post_train/v28/submit_baseline.sh: check the zip, smoke,
 #   gate, the run itself, and a report against the reference arm. That script refuses while any eval job of ours is
@@ -13,11 +13,14 @@
 # - A later run needs the zip's passed smoke gate. It goes through baseline/submit_eval.sh, then a diagnose_run.py
 #   job against the arm's first run. AFTER=<job id> holds it until that job ends, e.g. the previous run's driver.
 # Run it on the Explorer login node, from this repo's checkout. It runs only light commands there (ls, grep, stat,
-# squeue, sbatch, srun); Python runs inside srun or sbatch jobs. MAIN=<dir> sets the main-track checkout
+# squeue, sbatch); Python runs inside sbatch jobs. MAIN=<dir> sets the main-track checkout
 # (default ~/Gemma4_kaggle_repo). For tests only: GEMMA4_ROOT=<dir> replaces /scratch/$USER/gemma4, and
 # MODEL_BYTES the model's expected size.
+# Logs: every job this script queues writes <job name>_<id>.out to this repo's logs/, which git ignores. The main
+# track's chain writes its jobs' logs to $MAIN/logs; this script links that folder in as logs/main_track.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
+LOGS=$(dirname "$HERE")/logs
 MAIN=${MAIN:-$HOME/Gemma4_kaggle_repo}
 R=${GEMMA4_ROOT:-/scratch/$USER/gemma4}
 PAPER=$R/paper
@@ -65,6 +68,25 @@ evals_queued() {   # our jobs that make submit_baseline.sh refuse a new chain
   squeue -h -u "$USER" -o "%i %j %T" 2>/dev/null \
     | awk '$2 ~ /^(eval_l40s|eval_driver|smoke_gate|package_submission|diagnose|build_vllm_env|build_harness_env|lora_speed)$/' || true
 }
+ensure_logs() {   # this repo's logs/, with the main track's logs/ linked in as logs/main_track
+  mkdir -p "$LOGS"
+  if [ -d "$MAIN/logs" ] && [ ! -e "$LOGS/main_track" ] && [ ! -L "$LOGS/main_track" ]; then
+    ln -s "$MAIN/logs" "$LOGS/main_track" || true
+  fi
+}
+short_job() {   # short_job <job name> <sbatch args...>: with GO=1, queue a short CPU job, wait until it ends, print its log
+  local name=$1 j rc=0
+  shift
+  echo "  sbatch --wait -J $name -o $LOGS/%x_%j.out $*"
+  [ "$GO" = 1 ] || { echo "dry run: nothing queued. GO=1 queues it, waits for it to end and prints its log."; return 0; }
+  ensure_logs
+  j=$(sbatch --parsable --wait -J "$name" -o "$LOGS/%x_%j.out" "$@") || rc=$?
+  j=${j%%;*}
+  [ -n "$j" ] || fail "$name was not queued"
+  echo "job $j ended with exit code $rc. Its log, $LOGS/${name}_$j.out:"
+  cat "$LOGS/${name}_$j.out" 2>/dev/null || echo "(not there yet; look again in a minute)"
+  return "$rc"
+}
 
 cmd_status() {
   local a runs n r line gate next
@@ -78,6 +100,7 @@ cmd_status() {
   if [ -d "$MAIN/.git" ]; then
     echo "main:    $MAIN at $(git -C "$MAIN" rev-parse --short HEAD)$([ -n "$(git -C "$MAIN" status --porcelain --untracked-files=no)" ] && echo ', with local changes' || true)"
   else echo "main:    no checkout at $MAIN (set MAIN=...)"; fi
+  echo "logs:    $LOGS; the main track's chain logs to $MAIN/logs, linked in as logs/main_track"
   echo "queue:   $(squeue -h -u "$USER" 2>/dev/null | wc -l) of our jobs queued or running"
   squeue -h -u "$USER" -o "         %i %j %T %M" 2>/dev/null || true
   echo
@@ -139,9 +162,11 @@ cmd_run() {
   fi
   [ "$GO" = 1 ] || { echo "dry run: nothing queued. GO=1 queues it."; return 0; }
 
+  ensure_logs
   cd "$MAIN"
   if [ "$n" = 0 ]; then
     ZIP=$zip REF=$ref_run KAGGLE=$KAGGLE bash post_train/v28/submit_baseline.sh
+    echo "(that logs/ is the main track's, $MAIN/logs: from this repo, $LOGS/main_track)"
     return 0
   fi
   if ! out=$(PINS=1 PACE=0 DEPEND=${AFTER:+afterany:$AFTER} bash baseline/submit_eval.sh "$zip" "$IDS" "$next" 2>&1); then
@@ -150,37 +175,36 @@ cmd_run() {
   echo "$out"
   d=$(grep -oE 'driver job [0-9]+' <<<"$out" | head -1 | grep -oE '[0-9]+$') || true
   [ -n "$d" ] || fail "no driver job id in submit_eval.sh's output; queue the report by hand once $next has ended"
-  j=$(sbatch --parsable -p short -t 00:30:00 --mem=4G -J diagnose -o "logs/%x_%j.out" -e "logs/%x_%j.err" \
+  j=$(sbatch --parsable -p short -t 00:30:00 --mem=4G -J diagnose -o "$LOGS/%x_%j.out" -e "$LOGS/%x_%j.err" \
       --dependency="afterany:$d" \
       --wrap "$PY baseline/diagnose_run.py $R/results/$next --vs $R/results/${runs[0]}${KAGGLE:+ --kaggle $KAGGLE}")
-  echo "report: job ${j%%;*}, once driver $d ends -> $MAIN/logs/diagnose_${j%%;*}.out and $R/results/$next/diagnosis.md"
+  echo "report: job ${j%%;*}, once driver $d ends -> $LOGS/diagnose_${j%%;*}.out and $R/results/$next/diagnosis.md"
+  echo "the run's driver and shards log to the main track's logs/: $LOGS/main_track/eval_driver_$d.out, eval_l40s_<id>.out"
 }
 
 cmd_split() {
-  local cmd=(srun -p short -t 00:05:00 --mem=1G -J opsd_split "$PY" "$HERE/make_split.py" --out "$PAPER/split")
-  echo "  ${cmd[*]}"
-  [ "$GO" = 1 ] || { echo "dry run: nothing run. GO=1 runs it (about a minute, CPU)."; return 0; }
-  "${cmd[@]}"
+  short_job opsd_split -p short -t 00:05:00 --mem=1G --wrap "$PY $HERE/make_split.py --out $PAPER/split"
 }
 
 cmd_check_train() {
-  local cmd=(sbatch --export=ALL,MAIN="$MAIN" "$HERE/train_check.slurm")
-  echo "  mkdir -p $PAPER/logs && ${cmd[*]}"
+  local j cmd=(sbatch --parsable --export=ALL,MAIN="$MAIN" -o "$LOGS/%x_%j.out" -e "$LOGS/%x_%j.err" "$HERE/train_check.slurm")
+  echo "  ${cmd[*]}"
   [ -s "$PAPER/split/train59.txt" ] || { echo "blocked: no $PAPER/split/train59.txt yet (opsd_baselines.sh split)"; [ "$GO" = 1 ] && fail "not queued"; return 0; }
-  [ "$GO" = 1 ] || { echo "dry run: nothing queued. GO=1 queues it (CPU, about an hour); its log: $PAPER/logs/opsd_train_check_<id>.out"; return 0; }
-  mkdir -p "$PAPER/logs"
-  "${cmd[@]}"
+  [ "$GO" = 1 ] || { echo "dry run: nothing queued. GO=1 queues it (CPU; it took 6 min on 2026-10-08)."; return 0; }
+  ensure_logs
+  j=$("${cmd[@]}")
+  echo "queued job ${j%%;*}; its log: $LOGS/opsd_train_check_${j%%;*}.out (and .err)"
 }
 
 cmd_report() {
-  local stamp out
-  stamp=$(date +%m%d-%H%M); out=$PAPER/report_$stamp
-  local cmd=(srun -p short -t 00:30:00 --mem=8G -J opsd_report "$PY" "$HERE/baseline_report.py"
-             --results "$R/results" --ids "$IDS" --json "$out.json")
-  echo "  ${cmd[*]} > $out.md"
-  [ "$GO" = 1 ] || { echo "dry run: nothing run. GO=1 runs it (a few minutes, CPU)."; return 0; }
-  mkdir -p "$PAPER"
-  "${cmd[@]}" > "$out.md"
+  local out
+  out=$PAPER/report_$(date +%m%d-%H%M)
+  if [ "$GO" = 1 ]; then mkdir -p "$PAPER"; fi
+  short_job opsd_report -p short -t 00:30:00 --mem=8G \
+    --wrap "$PY $HERE/baseline_report.py --results $R/results --ids $IDS --json $out.json > $out.md" \
+    || fail "the report job failed; its log is above"
+  [ "$GO" = 1 ] || return 0
+  echo "report: $out.md and $out.json"
   cat "$out.md"
 }
 

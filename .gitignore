@@ -1,2 +1,6 @@
 # PDF files
 *.pdf
+
+# Slurm logs stay on Explorer: they name task ids. Only the folder itself is in git.
+logs/*
+!logs/.gitkeep
