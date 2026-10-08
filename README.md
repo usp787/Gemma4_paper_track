@@ -202,7 +202,8 @@ Any paper in these areas has to cite this work and go beyond it.
 **Goal:** train Gemma 4 31B, by self-distillation, into an agent that runs with thinking off but acts like the thinking-on model.
 - **Teacher:** the same model, which also sees the task's reference patch.
 - **Training signal:** the teacher scores the student's own rollouts token by token.
-- **Method:** On-Policy Self-Distillation (OPSD), [arXiv 2601.18734](https://arxiv.org/abs/2601.18734). Our copy is [opsd.pdf](opsd.pdf).
+- **Method:** On-Policy Self-Distillation (OPSD), [arXiv 2601.18734](https://arxiv.org/abs/2601.18734). Our copy is [Reference/opsd.pdf](Reference/opsd.pdf).
+- **Assessment (2026-10-08):** [opsd_assessment.md](opsd_assessment.md) checks this design against the paper, its code and our logs. It also gives the schedule, the compute estimate, the faculty option plan and the main-track impact.
 - **Fallback:** if this fails the go/no-go check in the [plan](#plan), the paper becomes the thinking-budget study (option A below). Its runs double as this method's baselines.
 
 ### Why OPSD
@@ -285,6 +286,9 @@ Any paper in these areas has to cite this work and go beyond it.
 This area is crowded with preprints from June–September 2026, and plain OPSD has known failure modes in multi-turn agents:
 
 - **[PSP (2609.29051)](https://arxiv.org/abs/2609.29051v1):** OPSD students "act confidently without the knowledge behind that confidence". PSP reports gains on SWE-bench Verified by moving the hint into the sampler.
+  - Its SWE-bench Verified table runs every agent with thinking off. Plain OPSD fell *below the untrained base*: 2.40 vs 3.56 for Qwen3-4B, and 2.88 vs 4.72 for Qwen3-8B.
+  - Its privileged information was an analyzer's per-task guidance. A gold patch gives the teacher even more that the student lacks.
+  - [opsd_assessment.md](opsd_assessment.md) therefore proposes the model's own thinking as the teacher, and keeps the gold-patch teacher planned below as one arm of the comparison.
 - **[HERO (2606.11559)](https://arxiv.org/pdf/2606.11559):** naive multi-turn OPSD made performance worse.
 - **[Rethinking OPSD for Thinking Models (2607.05184)](https://www.alphaxiv.org/abs/2607.05184):** full reference solutions in the teacher's context hurt more than short hints. Hence the location-only ablation.
 - **[Rethinking Privileged Information in OPSD (2608.18271)](https://arxiv.org/abs/2608.18271):** references from other problems produced much of the gain. Hence the wrong-reference control.
@@ -353,6 +357,6 @@ Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
 Read on 2026-10-07:
 - the paper track's Overview pages (Description, Evaluation, Submission Requirements, Timeline), Rules, prize tracks and all 15 forum threads
 - the main competition's Data, Evaluation, Prizes, Timeline and Rules pages, and its forum threads on graphs, embeddings and the paper track
-- the OPSD and DSpark papers ([opsd.pdf](opsd.pdf), [dspark.pdf](dspark.pdf)), and the 2026 literature linked under [Primary direction](#primary-direction-opsd-for-a-thinking-off-agent)
+- the OPSD and DSpark papers ([Reference/opsd.pdf](Reference/opsd.pdf), [dspark.pdf](dspark.pdf)), and the 2026 literature linked under [Primary direction](#primary-direction-opsd-for-a-thinking-off-agent)
 
 Kaggle's pages override this file. Re-check them before submitting.
