@@ -6,6 +6,8 @@ Our entry for **[Google – The Gemma 4 Developer Agent Paper Track](https://www
 
 Submit a **Kaggle Writeup of at most 3,000 words** that reports original, unpublished research advancing agentic software engineering.
 
+**Our direction (decided 2026-10-07):** on-policy self-distillation (OPSD) of Gemma 4 31B into a coding agent that runs with thinking off. See [Primary direction](#primary-direction-opsd-for-a-thinking-off-agent).
+
 - The main leaderboard counts the issues an agent fixes. The paper track asks for the "how and why" ([host welcome, 743012](https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/743012)).
 - Both independent research and a writeup of a main-competition approach qualify.
 - Entering the main competition isn't required. The paper track is a separate Kaggle competition, so you have to join it and accept its rules.
@@ -193,61 +195,152 @@ Any paper in these areas has to cite this work and go beyond it.
   - The main track runs until 2026-12-02, so anything we publish reaches the other main-track teams during its last 20 days.
 - **Two writeups at most.** We could submit an empirical paper and a resource paper, but each can win only one award.
 
-## Candidate directions (from our main-track work; to decide)
+## Primary direction: OPSD for a thinking-off agent
 
-The main-track notes already hold measured results that fit the host's invitation to "document your approach".
-- File paths below are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
-- Numbers are as of 2026-10-07. Most come from a single run on 70 local tasks.
+<!-- decided 2026-10-07; the design gets worked out in a dedicated OPSD session -->
 
-### 1. Under a wall-clock budget, serving cost decides what helps
+**Goal:** train Gemma 4 31B, by self-distillation, into an agent that runs with thinking off but acts like the thinking-on model.
+- **Teacher:** the same model, which also sees the task's reference patch.
+- **Training signal:** the teacher scores the student's own rollouts token by token.
+- **Method:** On-Policy Self-Distillation (OPSD), [arXiv 2601.18734](https://arxiv.org/abs/2601.18734). Our copy is [opsd.pdf](opsd.pdf).
+- **Fallback:** if this fails the go/no-go check in the [plan](#plan), the paper becomes the thinking-budget study (option A below). Its runs double as this method's baselines.
 
-Topic: Tuning & Optimization. Aims at Best Paper.
+### Why OPSD
 
-- **Thinking off scored lower:** 19/70 vs 25/70 locally, and 3/58 vs 7/58 on Kaggle (`agentic_workflow/README.md`).
-  - Without thinking, 50% of tool calls repeat an identical earlier call and 24% are malformed. With thinking on, those shares are 9% and 2.2%.
-  - With thinking on, thinking takes 65–71% of agent time, and resolved tasks finish close to the per-task clock.
-- **LoRA has a serving cost** (`post_train/README.md`, `post_train/RFT/v28.md`).
-  - On wheelhouse v28, decoding slows 8–9% at rank 8–16, 16% at rank 32 and 21% at rank 64.
-  - To break even, a rank 8–16 adapter must gain about 2 tasks per 70, and a rank 64 adapter about 10.
-- **Our first RFT adapter lost to the base** (`post_train/RFT/round0.md`, v25 harness).
-  - It was rank 64, trained on 221 samples from 11 tasks, and resolved 8/70 against the base's 23/70.
-  - It decoded at 22.5 tok/s against the base's 28.4, and every trained task it lost hit the 4-min timeout.
-- **Overflow loses work:** a context overflow throws away the working patch, on 3–4 of 70 tasks per run.
-- **Gaps:**
-  - one run per variant
-  - v25 results no longer match the scorer
-  - no adapter has been trained or scored on v28
-  - thinking on/off was compared on only one agent config, the host's sample
+- **It fixes RFT round 0's data problem.**
+  - Round 0 kept 19 successful trajectories from 11 tasks: 221 samples with just 52k loss tokens. Every failed rollout was thrown away.
+  - OPSD gets a dense, per-token signal from every rollout, failures included.
+  - It needs only a reference patch, not a passing test. So the 20 public tasks our scorer can't grade become training data too.
+- **It attacks speed in the one way the main-track harness allows.** We can't change decoding, but we can change how many tokens the agent generates.
+  - Thinking takes 65–71% of agent time.
+  - With thinking off, the agent loops and mangles calls. 50% of tool calls repeat an identical earlier call, and 24% are malformed (with thinking on: 9% and 2.2%). After one malformed call, the next is malformed 92% of the time.
+  - OPSD's best setting in its paper was exactly this pairing: a thinking-off student and a thinking-on teacher.
+- **It keeps the LoRA slowdown small.** Our notes blame much of round 0's loss on speed: the rank-64 adapter decoded at 22.5 tok/s against the base's 28.4. At rank 16 the slowdown is 8%, so the adapter breaks even at about 2 extra tasks per 70.
+- **It extends OPSD past its stated limits.** The paper only tested Qwen3 up to 8B on single-turn math, and it names larger scales as an open question. We'd test a 31B int4 multi-turn coding agent under a time limit.
+- **It matches the host's first listed topic:** "Tuning & Optimization", meaning parameter-efficient fine-tuning and RL for SWE agents.
+- **Its effects are measurable on 70 tasks.** The repeat and malformed shares are far less noisy than the resolve rate.
+- **It can be submitted to the main track.** A rank-16 adapter plus `thinking_budget: 0` is a valid submission. Kaggle's hidden set, from private repos, then doubles as an out-of-distribution test.
 
-### 2. How far a small SWE leaderboard can be trusted
+### Alternatives we weighed
 
-Topic: Tasks & Benchmarks / evaluation method. Could be its own writeup, or the evaluation section of 1.
+| | A. Thinking-budget study | **B. OPSD (chosen)** | C. DSpark drafter |
+|---|---|---|---|
+| Core claim | How much thinking a local agent needs under a time limit | A thinking-off student that acts like the thinking-on model | Faster decoding for the same agent |
+| Engineering | 1–3 days (config sweeps) | About 1 week (a new loss in `train_lora.py`) | 2–3 weeks (drafter training plus serving integration) |
+| GPU time (rough) | 50–100 GPU-h | 100–150 GPU-h | 150–300+ GPU-h |
+| Usable in main track | Yes, as config | Yes: LoRA plus `thinking_budget: 0` | No |
+| Novelty | Clear gap, but measurement only | Crowded area, but this angle is untaken | Small-scale replication of DeepSeek's work |
+| Risk | Low | Medium to high | High |
 
-- **Local and Kaggle scores disagree.** The same zip resolved 25/70 (35.7%) locally and 7/58 (12.1%) on Kaggle's hidden set (`post_train/v28/README.md`). That is a 3× gap, far beyond the noise of either.
-- **One run is noisy.** Over three runs of one agent, 16 tasks always resolve, 40 never do and 14 flip.
-  - That is about ±2.2 tasks per run.
-  - So one run per variant only detects a change of about 6 tasks.
-- **The public board is coarse.** It shows floor(100·k/58)/100, and byte-identical zips from other teams scored 0.12 and 0.15.
-- **Our grader check** (`post_train/RFT/README.md`): in our replica of the scorer, 111 of 129 gold patches pass and 109 tasks are sound. A public notebook already reports 119 of 129 sound.
-- **Gaps:** repeated runs, and an explanation for the local-vs-Kaggle gap.
+- **Writing up our main-track agent:**
+  - Our rank isn't the problem. The rubric doesn't score rank, and 0.13 vs 0.15 is 8 vs 9 tasks out of 58, inside our measured noise.
+  - The problem is that most of our findings are quirks of this harness (LoRA zeroing, the broken search tool, Kaggle's pacing), which score low on Quality.
+  - Most of them are also single runs, and v28 invalidated the v25 results.
+- **A topic from scratch:**
+  - 36 days is too short. Our 70-task runs take 2.6–5 h and vary by ±2.2 tasks, so every claim needs repeated runs.
+  - Code graphs and benchmarks are crowded areas.
+  - We'd give up tooling that already works.
+- **A. Thinking-budget study:**
+  - We found no study that varies the thinking budget of open models on SWE tasks while counting malformed and repeated calls.
+  - The nearest evidence is mixed. In [NetConfArena](https://arxiv.org/pdf/2608.23179), thinking raised invalid actions for Qwen3-32B but cut them for Qwen3-8B. ["The Danger of Overthinking"](https://arxiv.org/pdf/2502.08235) found that more reasoning can hurt agent tasks.
+  - It becomes OPSD's motivation and baselines, and the fallback paper.
+- **C. DSpark** ([arXiv 2607.05147](https://arxiv.org/abs/2607.05147); our copy is [dspark.pdf](dspark.pdf)):
+  - **Main track:** it can't be used there. The harness launches vLLM with its own flags, and a drafter is a second model.
+  - **Training cost:** its recipe regenerates 1.3M target responses and trains for 10 epochs on the target's hidden states. At 31B that is far beyond 5 weeks.
+  - **Checkpoints:** the released drafters cover Qwen3 4B/8B/14B, Gemma 4 12B and DeepSeek-V4. None is for the 31B.
+  - **Wrong setting:** its scheduler is built for high-concurrency serving. A local agent runs about one request at a time, where verifying extra draft tokens is almost free.
+  - **At most:** a training-free n-gram speculation run in vLLM could fill one paragraph of the paper, since `edit_file` arguments copy file text verbatim.
+- **Code graphs:** other entrants have already published the audit findings, and we have no positive graph result.
+- **Silent serving bugs** (the LoRA-zeroing probe, unannounced harness changes): too specific to this harness to stand alone. They could fill a short section if space allows.
 
-### 3. Catching silent serving bugs
+### Initial design (to refine in the OPSD session)
 
-A smaller resource, or a section of 1.
+- **Student:** the competition checkpoint `gemma-4-31b-it-qat-w4a16-ct`, with thinking off (`thinking_budget: 0`) and a rank-16 LoRA.
+- **Teacher:**
+  - The same weights with the adapter disabled. That is the initial policy, which is what OPSD prescribes.
+  - It sees the student's context plus a privileged block: the gold patch, or a location-only hint.
+  - Its thinking can be on or off.
+- **Loss:**
+  - Per-token forward KL on the assistant tokens of the student's own rollouts, with OPSD's pointwise clipping.
+  - Start with the sampled-token variant, which is cheap; OPSD reports 82.1 vs 84.1 for full-vocabulary KL.
+  - Move to chunked full-vocabulary KL if memory allows.
+- **Split:**
+  - Train on the 59 non-dev public tasks: rich 48, fastapi 7, requests 4. These include the 20 tasks our scorer can't grade, so first check that their sandboxes still run.
+  - Evaluate on the 70 dev tasks: fastapi 60, requests 9, httpx 1. Since training is mostly rich and evaluation mostly fastapi, this is a cross-repo test.
+- **Metrics:**
+  - resolved tasks, with 2 seeds and paired tests
+  - repeat share and malformed share
+  - the chance that a malformed call follows a malformed call
+  - time and tokens per task
+- **Baselines already measured on v28:**
+  - thinking-off base: 19/70
+  - thinking-on base: 25/70 (20/70 in a second run)
+- **Ablations and controls:**
+  - full gold patch vs. a location-only hint
+  - a wrong-reference control (another task's patch)
+  - teacher thinking on vs. off
 
-- **Silently zeroed LoRAs** (`docs/issue_743508_lora_wipe.md`):
-  - Up to wheelhouse v22, the host's vLLM silently zeroed every LoRA.
-  - A poisoned-adapter probe exposed it, because the logprobs stayed identical to the base.
-  - The v25 fix matches the one in our write-up.
-- **Unannounced harness changes:** wheelhouse v28 changed adapter serving, thinking and tool output without notice. Our base agent went from 23/70 to 20/70; a sign test gives p = 0.55, so that is noise.
+### Risks from the 2026 literature
 
-### 4. Code graphs: a poor fit for us
+This area is crowded with preprints from June–September 2026, and plain OPSD has known failure modes in multi-turn agents:
 
-We have no positive graph result: every `search_similar_code` call in our v28 runs returned nothing. Other entrants have also published the audit findings already.
+- **[PSP (2609.29051)](https://arxiv.org/abs/2609.29051v1):** OPSD students "act confidently without the knowledge behind that confidence". PSP reports gains on SWE-bench Verified by moving the hint into the sampler.
+- **[HERO (2606.11559)](https://arxiv.org/pdf/2606.11559):** naive multi-turn OPSD made performance worse.
+- **[Rethinking OPSD for Thinking Models (2607.05184)](https://www.alphaxiv.org/abs/2607.05184):** full reference solutions in the teacher's context hurt more than short hints. Hence the location-only ablation.
+- **[Rethinking Privileged Information in OPSD (2608.18271)](https://arxiv.org/abs/2608.18271):** references from other problems produced much of the gain. Hence the wrong-reference control.
 
-**Suggested lead: 1, with 2 as its evaluation section.**
-- It reuses what we have already measured and answers "document your approach" directly.
-- Its biggest gap, repeated runs on v28, is the same one 2 needs filled anyway.
+The paper must also set itself apart from:
+- **[Hindsight Hint Distillation (2605.11556)](https://arxiv.org/pdf/2605.11556):** SWE-specific, +8 points on SWE-bench Verified. It trains by SFT on successful runs guided by hints.
+- **[PivotOPD (2609.40285)](https://arxiv.org/abs/2609.40285)**
+- **[Patches-to-Trajectories (2605.21996)](https://arxiv.org/abs/2605.21996):** uses the gold patch to curate SFT data.
+- **[SDPO (2601.20802)](https://arxiv.org/pdf/2601.20802):** uses environment feedback as the privileged context.
+
+As of 2026-10-07, we found nothing that combines a gold-patch teacher, on-policy self-distillation, a thinking-off student and a time limit.
+
+### Fit with our stack
+
+Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
+
+- **Trainer:** `baseline/train_lora.py` already trains a LoRA on the decompressed bf16 checkpoint, with HF and PEFT in a custom loop that chunks logits and applies Gemma's soft-cap.
+  - The teacher pass is the same model under PEFT's `disable_adapter()`, so the H200 needs no second copy.
+  - Apply the soft-cap (`head_logits`) to both teacher and student.
+- **Token alignment:** the teacher needs the student's exact token ids, which `baseline/token_proxy.py` already logs. Insert the privileged block after the system prompt.
+- **Throughput:** OPSD needs two forward passes per token. So build first the prefix sharing proposed in `post_train/RFT/README.md`, which cuts the tokens processed by 4.7×.
+- **Compaction:** ADK compacts the context at about 14k tokens, so per-call prompts aren't always prefixes of each other. Decide between exact per-call training and packed trajectories.
+- **Cluster limits:**
+  - Training runs on an H200 (141 GB). The `gpu` partition caps jobs at 8 h and 1 GPU each, with 4 running per user, so training must resume from checkpoints.
+  - Rollouts and evals run on L40S.
+- **Serving:** vLLM 0.19.1 with wheelhouse v28 serves each adapter at its own rank. No adapter bundle has a confirmed Kaggle score yet, so our Kaggle submission also tests that path.
+
+### Plan
+
+| Dates | Work |
+|---|---|
+| Oct 8–14 | Split the tasks, run thinking-off rollouts on the training set, and implement the loss. First run a cheap diagnostic: where does the teacher that sees the patch disagree with the student? We expect malformed-call tokens and repeated calls, and the result doubles as a paper figure. |
+| Oct 15–21 | Round 1: rank 16, about 100 steps. Evaluate on dev with 2 seeds against both baselines. |
+| **~Oct 22** | **Go/no-go:** if the repeat and malformed shares don't fall on the dev tasks, switch to the fallback paper (A). |
+| Oct 22–Nov 2 | Round 2 on fresh rollouts, the ablations, and one Kaggle submission of the best adapter. |
+| Nov 3–10 | Write at most 3,000 words and submit early. The deadline is Nov 12. |
+
+### Evidence from our main-track runs
+
+Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo). Numbers are as of 2026-10-07. Most come from a single run on 70 local tasks.
+
+- **Thinking on vs. off** (`agentic_workflow/README.md`):
+  - Resolved: 25/70 vs 19/70 locally, and 7/58 vs 3/58 on Kaggle.
+  - Repeated calls: 9% vs 50%. Malformed calls: 2.2% vs 24%.
+  - A malformed call follows a malformed call 47% vs 92% of the time.
+  - With thinking on, thinking takes 65–71% of agent time.
+- **LoRA slowdown on v28** (`post_train/RFT/v28.md`, `post_train/README.md`): 8–9% at rank 8–16, 16% at rank 32 and 21% at rank 64.
+- **RFT round 0** (`post_train/RFT/round0.md`, v25):
+  - Trained at rank 64 on 11 tasks, 19 trajectories and 221 samples.
+  - Resolved 8/70 against the base's 23/70, and 2/59 vs 12/59 on unseen tasks.
+  - Decoded at 22.5 tok/s against the base's 28.4.
+- **Noise** (`post_train/v28/README.md`):
+  - Over three runs, 16 tasks always resolve, 40 never do and 14 flip. That is about ±2.2 tasks per run.
+  - The same zip scored 25/70 locally and 7/58 on Kaggle, a 3× gap.
+- **Context overflow:** it throws away the working patch on 3–4 of 70 tasks per run.
+- **Grader check** (`post_train/RFT/README.md`): in our replica of the scorer, 111 of 129 gold patches pass and 109 tasks are sound.
 
 ## Repo workflow (proposed)
 
@@ -260,5 +353,6 @@ We have no positive graph result: every `search_similar_code` call in our v28 ru
 Read on 2026-10-07:
 - the paper track's Overview pages (Description, Evaluation, Submission Requirements, Timeline), Rules, prize tracks and all 15 forum threads
 - the main competition's Data, Evaluation, Prizes, Timeline and Rules pages, and its forum threads on graphs, embeddings and the paper track
+- the OPSD and DSpark papers ([opsd.pdf](opsd.pdf), [dspark.pdf](dspark.pdf)), and the 2026 literature linked under [Primary direction](#primary-direction-opsd-for-a-thinking-off-agent)
 
 Kaggle's pages override this file. Re-check them before submitting.
