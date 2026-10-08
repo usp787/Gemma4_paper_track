@@ -1,0 +1,5 @@
+# Scripts run on Linux (Explorer); keep LF regardless of Windows autocrlf (as in Gemma4_kaggle_repo)
+*.sh     text eol=lf
+*.slurm  text eol=lf
+*.py     text eol=lf
+*.tsv    text eol=lf

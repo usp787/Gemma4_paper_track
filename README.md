@@ -350,6 +350,8 @@ Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
 
 - **This repo** holds the paper (Writeup markdown and/or LaTeX), the figures, and the scripts that turn our logs into the numbers we cite.
 - **Experiments, data and models** stay in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo) and run on NEU Explorer, per that repo's CLAUDE.md.
+- **[baseline/](baseline/README.md)** records the status of the OPSD baseline arms. Its launcher queues their runs through that repo's eval tooling; you submit, with `GO=1`.
+- **[adaptive_inference/](adaptive_inference/README.md)** holds the per-call thinking controller and the "who decides when the agent thinks" comparison.
 - **Don't commit competition data here** (tasks, snapshots, graphs, embeddings). The rules forbid redistributing it, and this repo may go public along with the paper.
 
 ## Sources

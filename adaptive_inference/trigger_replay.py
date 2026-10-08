@@ -5,7 +5,8 @@ thinking-on run), and reports:
 - call hygiene: stale repeats, malformed arguments, error results, source edits;
 - how bad calls chain: P(bad | previous bad) against P(bad | previous clean and ok);
 - how often each trigger of a per-call thinking switch would fire;
-- for a run that thinks, how the model's own output tokens (mostly thinking) are spread over those states.
+- for a run that thinks, how the model's own output tokens (mostly thinking) are spread over those states;
+- for a run with an advisor sub-agent (agentic_v2), where the model calls it.
 
 Definitions:
 - malformed: argument names don't match the tool's (unknown or missing required), as in the main-track
@@ -13,11 +14,15 @@ Definitions:
 - stale repeat: the same tool and arguments as an earlier call, with no successful edit_file or write_file
   in between. A re-run of the same test after an edit is not stale.
 - bad: stale repeat or malformed. Both can be detected on the drafted call, before it executes.
+- before the call: triggers a controller can read off the conversation before the model writes anything for this call
+  (the first call; the previous call was bad or returned an error). After a draft: triggers that need the drafted
+  call itself, kept for comparison.
 
 Usage: one or more run dirs, each with shard_*/traces/ and shard_*/task_results.jsonl. The numbers in
-README.md come from the main-track repo's audit copies of the v28 runs:
+README.md come from the main-track repo's audit copies of two v28 runs, plus agentic_v2's run, whose traces and
+task results were pulled from /scratch/$USER/gemma4/results/agentic_v2_v28_zip:
     python -I trigger_replay.py <Gemma4_kaggle_repo>/logs/explorer_audit_20261005/baseline_nothink_v28_zip \
-        <Gemma4_kaggle_repo>/logs/explorer_audit_20261005/base_v28_zip
+        <Gemma4_kaggle_repo>/logs/explorer_audit_20261005/base_v28_zip <pulled>/agentic_v2_v28_zip
 """
 import json
 import re
@@ -38,7 +43,12 @@ TOOL_ARGS = {
     "get_code_neighbors": ({"node"}, {"edge_type", "max_neighbors"}),
     "search_similar_code": ({"query"}, {"k"}),
     "get_code_subgraph": ({"nodes"}, set()),
+    "list_skills": (set(), set()),
+    "load_skill": ({"skill_name"}, set()),
+    "load_skill_resource": ({"skill_name", "file_path"}, set()),
+    "run_skill_script": ({"skill_name", "file_path"}, {"args", "short_options", "positional_args"}),
     "code_analyzer_agent": ({"request"}, set()),
+    "advisor": ({"request"}, set()),
 }
 TEST_PATH = re.compile(r"(^|/)(tests?|testing)/|(^|/)test_[^/]*\.py$|_test\.py$|(^|/)conftest\.py$")
 
@@ -68,6 +78,7 @@ def trace_calls(t: dict) -> list[dict]:
         err = isinstance(d, dict) and (d.get("status") == "error" or ("error" in d and "status" not in d))
         out.append({
             "fn": fn,
+            "src_edited_before": any(c["src_edit"] for c in out),
             "stale": last_seen.get(key) == n_edits,
             "malformed": fn in TOOL_ARGS and bool((set(args) - req - opt) or (req - set(args))),
             "err": bool(err),
@@ -117,16 +128,38 @@ def report(name: str, res: dict, calls: dict) -> None:
     firsts = [next(i for i, c in enumerate(cs) if bad(c)) + 1 for cs in calls.values() if any(map(bad, cs))]
     q = st.quantiles(firsts, n=4)
     print(f"tasks with a bad call: {len(firsts)}/{len(calls)}; the first at call {st.median(firsts):.0f} (median; IQR {q[0]:.0f}-{q[2]:.0f})")
+    after_fail = lambda cs, i: i > 0 and (bad(cs[i - 1]) or cs[i - 1]["err"])
     triggers = {
-        "draft is bad (pre-execution check)": lambda cs, i: bad(cs[i]),
-        "previous call bad or errored": lambda cs, i: i > 0 and (bad(cs[i - 1]) or cs[i - 1]["err"]),
-        "either of the two": lambda cs, i: bad(cs[i]) or (i > 0 and (bad(cs[i - 1]) or cs[i - 1]["err"])),
-        "either, or a source edit, or the first call": lambda cs, i: (i == 0 or bad(cs[i]) or cs[i]["src_edit"]
-                                                                      or (i > 0 and (bad(cs[i - 1]) or cs[i - 1]["err"]))),
+        "before the call: previous call bad or errored": after_fail,
+        "before the call: that, or the first call": lambda cs, i: i == 0 or after_fail(cs, i),
+        "after a draft: draft is bad": lambda cs, i: bad(cs[i]),
+        "after a draft: draft bad or a source edit, or either before-call trigger":
+            lambda cs, i: i == 0 or bad(cs[i]) or cs[i]["src_edit"] or after_fail(cs, i),
     }
     for label, fire in triggers.items():
         hits = sum(fire(cs, i) for cs in calls.values() for i in range(len(cs)))
         print(f"  trigger '{label}': {pct(hits, n)} of these calls")
+    advisor_placement(calls)
+
+
+def advisor_placement(calls: dict) -> None:
+    """Where the model calls its advisor sub-agent itself (agentic_v2): the model-decides arm."""
+    where, after_bad = Counter(), Counter()
+    for cs in calls.values():
+        for i, c in enumerate(cs):
+            if c["fn"] == "advisor":
+                where["after a bad or errored call" if i > 0 and (bad(cs[i - 1]) or cs[i - 1]["err"])
+                      else "after a source edit, previous call clean" if c["src_edited_before"]
+                      else "before the first source edit"] += 1
+            if i > 0 and bad(cs[i - 1]):
+                after_bad["the advisor" if c["fn"] == "advisor" else "bad again" if bad(c) else "something else"] += 1
+    if not where:
+        return
+    per_task = Counter(sum(c["fn"] == "advisor" for c in cs) for cs in calls.values())
+    print(f"  advisor: {sum(where.values())} calls in {len(calls) - per_task[0]} tasks "
+          f"(calls per task: {dict(sorted(per_task.items()))}); " + ", ".join(f"{k} {v}" for k, v in where.most_common()))
+    n = sum(after_bad.values())
+    print(f"  the call right after a bad call: " + ", ".join(f"{k} {v} ({pct(v, n)})" for k, v in after_bad.most_common()))
 
 
 def thinking_spread(calls: dict) -> None:
