@@ -12,10 +12,12 @@ Per arm, on the 70 dev tasks:
 - from calls.jsonl, where the run dir has it: output tokens per task, and the share that is thinking. That share is
   Gemma 4's <|channel> ... <channel|> block (ids 100 and 101), counted as baseline/diagnose_run.py counts it.
 
-Only unpaced runs in the PINS=1 env count, as every v28 baseline is. Any other run is listed and left out.
+Only runs on one wheelhouse version count (--wheelhouse; ours by default), unpaced and in the PINS=1 env, as every
+baseline is. arms.tsv's {v} in run names becomes that version's tag, and its Kaggle column gives one score per
+version. Any other run is listed and left out.
 stdlib only. On Explorer it runs as a short sbatch job (opsd_baselines.sh report). Locally it runs on pulled run dirs,
 where traces and task_results.jsonl suffice:
-    python baseline_report.py [--results DIR] [--ids FILE] [--arms FILE] [--json OUT]
+    python baseline_report.py [--results DIR] [--ids FILE] [--arms FILE] [--wheelhouse N] [--json OUT]
 """
 from __future__ import annotations
 
@@ -58,13 +60,17 @@ BOOTSTRAP = 10_000
 
 
 # ---- arms and runs
-def read_arms(path: Path) -> list[dict]:
+def read_arms(path: Path, tag: str) -> list[dict]:
+    """The arms, with {v} in run names replaced by the wheelhouse tag (v29, say) and that version's Kaggle score:
+    the kaggle column holds v<N>:k/n per version, separated by commas."""
     keys = ("arm", "agent", "zip", "first_run", "extra_runs", "ref", "kaggle", "about")
     arms = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip() and not line.startswith("#"):
             row = dict(zip(keys, line.split("\t")))
-            row["extra_runs"] = [] if row["extra_runs"] == "-" else row["extra_runs"].split(",")
+            row["first_run"] = row["first_run"].replace("{v}", tag)
+            row["extra_runs"] = [] if row["extra_runs"] == "-" else [r.replace("{v}", tag) for r in row["extra_runs"].split(",")]
+            row["kaggle"] = dict(s.split(":", 1) for s in row["kaggle"].split(",") if ":" in s).get(tag, "-")
             arms.append(row)
     return arms
 
@@ -139,7 +145,7 @@ def n_think(c: dict) -> int:
     return ids.index(THINK_CLOSE) + 1 if THINK_CLOSE in ids else len(ids)
 
 
-def load_run(run: Path, ids: set | None) -> dict:
+def load_run(run: Path, ids: set | None, wheelhouse: str) -> dict:
     meta, rows, shard_of = {}, {}, {}
     for shard in sorted(p for p in run.glob("shard_*") if p.is_dir()):
         if not meta and (shard / "run_meta.json").is_file():
@@ -165,6 +171,8 @@ def load_run(run: Path, ids: set | None) -> dict:
                 tasks[c["task"]]["out"] += (c.get("usage") or {}).get("completion_tokens") or len(out_ids(c))
                 tasks[c["task"]]["think"] += n_think(c)
     why = []
+    if meta and str(meta.get("wheelhouse_version")) != wheelhouse:   # run_eval.py records it in run_meta.json
+        why.append(f"wheelhouse v{meta.get('wheelhouse_version')}, not v{wheelhouse}")
     if meta and meta.get("pins") is not True:
         why.append("not in the PINS=1 env")
     if meta and (meta.get("pace") or "none") != "none":
@@ -241,21 +249,27 @@ def main() -> int:
     ap.add_argument("--ids", type=Path, default=ROOT / "train/rft0/dev_sound_ids.txt",
                     help="the tasks to count (default: the 70 dev-sound tasks); 'none' counts every task a run has")
     ap.add_argument("--arms", type=Path, default=HERE / "arms.tsv")
+    ap.add_argument("--wheelhouse", help="the wheelhouse version whose runs count, e.g. 29 (default: ours, from "
+                    "$ROOT/wheelhouse/.version)")
     ap.add_argument("--json", type=Path, help="also write everything as JSON here")
     a = ap.parse_args()
     ids = None if str(a.ids) == "none" or not a.ids.is_file() else set(a.ids.read_text().split())
+    version_file = ROOT / "wheelhouse" / ".version"
+    wh = (a.wheelhouse or (version_file.read_text().strip() if version_file.is_file() else "")).lstrip("v")
+    if not wh:
+        ap.error(f"no wheelhouse version: {version_file} is missing, so pass --wheelhouse N")
     rng = random.Random(0)
 
-    arms = read_arms(a.arms)
+    arms = read_arms(a.arms, f"v{wh}")
     data = {}
     for arm in arms:
-        loaded = [load_run(p, ids) for p in arm_runs(arm, a.results)]
+        loaded = [load_run(p, ids, wh) for p in arm_runs(arm, a.results)]
         data[arm["arm"]] = {"arm": arm, "runs": [r for r in loaded if not r["excluded"]],
                             "excluded": [r for r in loaded if r["excluded"]]}
     for d in data.values():
         d["rates"] = rates(d["runs"])
     n_ids = len(ids) if ids else None
-    print(f"# OPSD baselines: {a.results}, {n_ids or 'all'} tasks{f' from {a.ids.name}' if ids else ''}\n")
+    print(f"# OPSD baselines on wheelhouse v{wh}: {a.results}, {n_ids or 'all'} tasks{f' from {a.ids.name}' if ids else ''}\n")
 
     print("| arm | runs: resolved | in every run | in any run | vs ref: better / worse | Δ resolved (95% CI) | sign test p |")
     print("|---|---|---|---|---|---|---|")
@@ -277,7 +291,7 @@ def main() -> int:
         none = f"no comparable runs ({len(d['excluded'])} left out)" if d["excluded"] else "no runs yet"
         print(f"| {name} | {per_run or none} | {every if runs else '–'} | {anyrun if runs else '–'} | {vs} | {delta} | {p} |")
         d["paired"], d["behaviour"] = cmp, behaviour(runs)
-        out[name] = {"about": arm["about"], "kaggle": arm["kaggle"],
+        out[name] = {"about": arm["about"], "wheelhouse": wh, "kaggle": arm["kaggle"],
                      "runs": [{"name": r["name"], "resolved": sum(x["resolved"] for x in r["tasks"].values()),
                                "finished": len(r["tasks"]), "zip_sha256": r["meta"].get("agent_zip_sha256"),
                                "start": r["meta"].get("start"), "calls_jsonl": r["have_calls"]} for r in runs],

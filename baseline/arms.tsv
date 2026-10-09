@@ -1,11 +1,14 @@
 # The OPSD paper's baseline arms, one per line, tab-separated. opsd_baselines.sh and baseline_report.py read this file.
 # - agent: the agent dir in the main-track repo (agents/<agent>); zip: its validated zip in /scratch/$USER/gemma4/submissions.
-# - first_run: the run name of the arm's first run (submit_baseline.sh names it <agent>_v28_zip). Later runs are
-#   <first_run>_r<k>, where k counts all of the arm's runs. extra_runs: other runs of the same files ("-" if none).
-# - ref: the arm baseline_report.py compares against, task by task. kaggle: the same zip's public-board score.
+# - first_run: the run name of the arm's first run, as submit_baseline.sh names it: <agent>_<v>_zip. {v} stands for
+#   the wheelhouse version the runs are on (v28, v29, ...), so one row names the arm's runs on every version. Later
+#   runs are <first_run>_r<k>, where k counts all of the arm's runs. extra_runs: other runs of the same files ("-" if none).
+# - ref: the arm baseline_report.py compares against, task by task.
+# - kaggle: the same zip's public-board scores, one per wheelhouse version, as v<N>:k/n separated by commas ("-" if
+#   none). A score compares only with runs on its own version.
 # arm	agent	zip	first_run	extra_runs	ref	kaggle	about
-off	baseline_nothink	baseline_nothink_20261005-1331_8f0eb1b.zip	baseline_nothink_v28_zip	-	-	3/58	thinking off; the host's sample prompt, temperature 0.2, 60 calls
-on	baseline_noadapter	baseline_noadapter_20260925-2342_fd03bc4.zip	base_v28_zip	base_v28_l40s	off	7/58	thinking on (budget 4096); otherwise the same files as off
-v1	agentic_v1	agentic_v1_20261005-2348_c56c8e0.zip	agentic_v1_v28_zip	-	off	-	thinking off; V1's prompt, temperature 1.0, 100 calls, 300-s commands: the OPSD student if clean
-v1_think	agentic_v1_think	agentic_v1_think_20261005-2347_c56c8e0.zip	agentic_v1_think_v28_zip	-	v1	8/58	thinking on (4096) with V1's prompt, but temperature 0.2, 60 calls and one more prompt line
-v2	agentic_v2	agentic_v2_20261005-2350_c56c8e0.zip	agentic_v2_v28_zip	-	v1	-	V1 plus the advisor (thinking on, called by the model) and two skills: the model decides
+off	baseline_nothink	baseline_nothink_20261005-1331_8f0eb1b.zip	baseline_nothink_{v}_zip	-	-	v28:3/58	thinking off; the host's sample prompt, temperature 0.2, 60 calls
+on	baseline_noadapter	baseline_noadapter_20260925-2342_fd03bc4.zip	base_{v}_zip	base_{v}_l40s	off	v28:7/58	thinking on (budget 4096); otherwise the same files as off
+v1	agentic_v1	agentic_v1_20261005-2348_c56c8e0.zip	agentic_v1_{v}_zip	-	off	-	thinking off; V1's prompt, temperature 1.0, 100 calls, 300-s commands: the OPSD student if clean
+v1_think	agentic_v1_think	agentic_v1_think_20261005-2347_c56c8e0.zip	agentic_v1_think_{v}_zip	-	v1	v28:8/58	thinking on (4096) with V1's prompt, but temperature 0.2, 60 calls and one more prompt line
+v2	agentic_v2	agentic_v2_20261005-2350_c56c8e0.zip	agentic_v2_{v}_zip	-	v1	-	V1 plus the advisor (thinking on, called by the model) and two skills: the model decides

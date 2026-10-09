@@ -5,7 +5,7 @@
 #   bash baseline/opsd_baselines.sh run <arm>     queue the arm's next run (arms.tsv)
 #   bash baseline/opsd_baselines.sh split         write the train/dev split files (make_split.py, a 1-min job)
 #   bash baseline/opsd_baselines.sh check-train   gold and empty patches on the train split (train_check.slurm)
-#   bash baseline/opsd_baselines.sh report        the cross-arm tables (baseline_report.py, a short job)
+#   bash baseline/opsd_baselines.sh report [N]    the cross-arm tables on wheelhouse vN, ours by default (a short job)
 # Nothing is queued without GO=1. By default each command prints what it would run, and what blocks it.
 # - An arm's first run goes through the main track's chain, post_train/v28/submit_baseline.sh: check the zip, smoke,
 #   gate, the run itself, and a report against the reference arm. That script refuses while any eval job of ours is
@@ -18,6 +18,10 @@
 # MODEL_BYTES the model's expected size.
 # Logs: every job this script queues writes <job name>_<id>.out to this repo's logs/, which git ignores. The main
 # track's chain writes its jobs' logs to $MAIN/logs; this script links that folder in as logs/main_track.
+# Versions: runs, smokes and gates are named after our wheelhouse version ($R/wheelhouse/.version, which the main
+# track's build_vllm_env.slurm writes), and it must equal Kaggle's. arms.tsv's {v} becomes that tag, v29 say, a gate
+# passed on another version never counts, and the report counts one version's runs. KAGGLE_WH=<n> fakes Kaggle's
+# version, for tests.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 LOGS=$(dirname "$HERE")/logs
@@ -29,17 +33,25 @@ PY=$R/venvs/harness/bin/python
 MODEL=$R/models/gemma-4-31b-it-qat-w4a16-ct/model.safetensors
 MODEL_BYTES=${MODEL_BYTES:-23265352448}   # slurm/fetch_model.slurm WANT_BYTES
 GO=${GO:-0}
+WH=$(cat "$R/wheelhouse/.version" 2>/dev/null || true)
+V=v${WH:-unknown}                           # the tag in run, smoke and gate names
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 lines() { if [ -f "$1" ]; then wc -l < "$1"; else echo 0; fi; }
 arms() { grep -v '^#' "$HERE/arms.tsv" | awk -F'\t' 'NF >= 8 {print $1}'; }
-arm_row() {   # arm_row <arm>: sets AGENT ZIP FIRST EXTRA REF KAGGLE ABOUT from arms.tsv
+arm_row() {   # arm_row <arm>: sets AGENT ZIP FIRST EXTRA REF KAGGLE ABOUT from arms.tsv, for wheelhouse $V
   local line
   line=$(grep -v '^#' "$HERE/arms.tsv" | awk -F'\t' -v a="$1" '$1 == a' | head -1)
   [ -n "$line" ] || fail "no arm '$1' in arms.tsv; the arms are: $(arms | paste -sd' ')"
   IFS=$'\t' read -r _ AGENT ZIP FIRST EXTRA REF KAGGLE ABOUT <<<"$line"
-  [ "$KAGGLE" = - ] && KAGGLE=
+  FIRST=${FIRST//"{v}"/$V}; EXTRA=${EXTRA//"{v}"/$V}
+  KAGGLE=$(tr ',' '\n' <<<"$KAGGLE" | sed -n "s/^$V://p" | head -1)   # this version's Kaggle score, if any
   return 0
+}
+kaggle_version() {   # Kaggle's current wheelhouse version, read as baseline/wheelhouse_check.sh reads it; "" if unknown
+  if [ -n "${KAGGLE_WH:-}" ]; then echo "$KAGGLE_WH"; return 0; fi
+  curl -s -m 15 https://www.kaggle.com/api/v1/datasets/view/metric/gemma-4-developer-agent-wheelhouse 2>/dev/null \
+    | grep -o '"currentVersionNumber":[0-9]*' | cut -d: -f2 || true
 }
 runs_of() {   # runs_of <first_run> <extra_runs>: the arm's run dirs that exist, as baseline_report.py orders them
   local r
@@ -58,10 +70,10 @@ resolved_of() {   # "k/n" from a run's summary_all.json, written by eval_driver.
     echo "no summary"
   fi
 }
-gate_of() {   # the passed smoke gate of a zip, if any (smoke_check.py writes GATE_OK into the smoke's run dir)
-  local sha
+gate_of() {   # a zip's passed smoke gate on this wheelhouse, if any: submit_baseline.sh names the smoke
+  local sha    # smoke_zip_<sha>_<v>_<time>, and smoke_check.py writes GATE_OK into it. v28's smokes have no <v>.
   sha=$(sha256sum "$1" | cut -c1-12)
-  ls -d "$R"/results/smoke_zip_"${sha}"_*/GATE_OK 2>/dev/null | tail -1 || true
+  ls -d "$R"/results/smoke_zip_"${sha}"_"$V"_*/GATE_OK 2>/dev/null | tail -1 || true
 }
 model_ok() { [ "$(stat -c %s "$MODEL" 2>/dev/null || echo 0)" = "$MODEL_BYTES" ]; }
 evals_queued() {   # our jobs that make submit_baseline.sh refuse a new chain
@@ -89,10 +101,15 @@ short_job() {   # short_job <job name> <sbatch args...>: with GO=1, queue a shor
 }
 
 cmd_status() {
-  local a runs n r line gate next
+  local a runs n r line gate next kv
   if model_ok; then echo "model:   complete"; else
     echo "model:   INCOMPLETE ($(stat -c %s "$MODEL" 2>/dev/null || echo 0) of $MODEL_BYTES bytes): every GPU job fails until"
     echo "         (cd $MAIN && sbatch slurm/fetch_model.slurm), then: ls -la $(dirname "$MODEL")"
+  fi
+  kv=$(kaggle_version)
+  echo "harness: wheelhouse $V, Kaggle's v${kv:-?}; the runs below are those on $V"
+  if [ -n "$kv" ] && [ "v$kv" != "$V" ]; then
+    echo "         WARN: Kaggle is on v$kv. Re-align before measuring: (cd $MAIN && bash baseline/submit_realign.sh)"
   fi
   echo "dev ids: $(lines "$IDS") in $IDS (should be 70)"
   if [ -s "$PAPER/split/train59.txt" ]; then echo "split:   $(lines "$PAPER/split/train59.txt") train ids in $PAPER/split"
@@ -112,8 +129,8 @@ cmd_status() {
     for r in "${runs[@]}"; do line+="${line:+, }$r $(resolved_of "$r")"; done
     gate=none; [ -f "$R/submissions/$ZIP" ] && [ -n "$(gate_of "$R/submissions/$ZIP")" ] && gate=passed
     [ -f "$R/submissions/$ZIP" ] || gate="no zip"
-    if [ "$n" = 0 ]; then next="first run: chain (check, smoke, gate, run, report) as $FIRST"
-    elif [ ! -f "$R/results/${runs[-1]}/summary_all.json" ]; then next="wait: ${runs[-1]} has no summary yet"
+    if [ "$n" -gt 0 ] && [ ! -f "$R/results/${runs[-1]}/summary_all.json" ]; then next="wait: ${runs[-1]} has no summary yet"
+    elif [ ! -d "$R/results/$FIRST" ]; then next="first run: chain (check, smoke, gate, run, report) as $FIRST"
     else next="run $((n + 1)): ${FIRST}_r$((n + 1))"; fi
     echo "$a: ${line:-no runs}"
     echo "    gate $gate; next $next"
@@ -121,30 +138,38 @@ cmd_status() {
 }
 
 cmd_run() {
-  local a=${1:?usage: opsd_baselines.sh run <arm>} zip runs n ref_run next gate out d j blocked=()
+  local a=${1:?usage: opsd_baselines.sh run <arm>} zip runs n first kv ref_run next gate out d j blocked=()
   arm_row "$a"
   zip=$R/submissions/$ZIP
   [ -f "$zip" ] || blocked+=("no zip $zip")
   model_ok || blocked+=("the model is incomplete: (cd $MAIN && sbatch slurm/fetch_model.slurm) first")
   [ "$(lines "$IDS")" = 70 ] || blocked+=("$IDS should hold the 70 dev-sound ids")
   [ -d "$MAIN/baseline" ] || blocked+=("no main-track checkout at $MAIN (set MAIN=...)")
+  [ "$V" != vunknown ] || blocked+=("no wheelhouse version in $R/wheelhouse/.version (slurm/build_vllm_env.slurm writes it)")
+  kv=$(kaggle_version)
+  if [ -n "$kv" ] && [ "v$kv" != "$V" ]; then
+    blocked+=("Kaggle's wheelhouse is v$kv, ours $V: re-align first, (cd $MAIN && bash baseline/submit_realign.sh), and settle what the update invalidates")
+  fi
   mapfile -t runs < <(runs_of "$FIRST" "$EXTRA")
   n=${#runs[@]}
+  if [ -d "$R/results/$FIRST" ]; then first=0; else first=1; fi   # an extra run (on's base_<v>_l40s) can come first
   if [ "$n" -gt 0 ] && [ ! -f "$R/results/${runs[-1]}/summary_all.json" ] && [ "${FORCE:-0}" != 1 ]; then
     blocked+=("${runs[-1]} has no summary yet: it is still running, or its leftovers need a rerun (FORCE=1 queues the next run anyway)")
   fi
 
-  if [ "$n" = 0 ]; then
-    # submit_baseline.sh compares the new run with REF: the reference arm's first run, or the host's zip (run A).
-    ref_run=base_v28_zip
-    if [ "$REF" != - ]; then
+  if [ "$first" = 1 ]; then
+    # submit_baseline.sh compares the new run with REF: the reference arm's first run on this wheelhouse, or else
+    # baseline/submit_realign.sh's base score on it. It always compares the host's default zip (on's) with the latter.
+    ref_run=base_${V}_l40s
+    if [ "$REF" != - ] && [ "$ZIP" != baseline_noadapter_20260925-2342_fd03bc4.zip ]; then
       arm_row "$REF"; [ -d "$R/results/$FIRST" ] && ref_run=$FIRST
       arm_row "$a"
     fi
+    [ -d "$R/results/$ref_run" ] || blocked+=("no run $ref_run to compare with yet (baseline/submit_realign.sh makes base_${V}_l40s)")
     [ -n "$(evals_queued)" ] && blocked+=("eval jobs of ours are queued, and submit_baseline.sh refuses a new chain until they end: $(evals_queued | awk '{print $1"("$2")"}' | paste -sd' ')")
     echo "arm $a: $ABOUT"
     echo "first run: $FIRST, through the main track's chain, compared with $ref_run"
-    echo "  (cd $MAIN && ZIP=$zip REF=$ref_run${KAGGLE:+ KAGGLE=$KAGGLE} bash post_train/v28/submit_baseline.sh)"
+    echo "  (cd $MAIN && ZIP=$zip REF=$ref_run${KAGGLE:+ KAGGLE=$KAGGLE} PACED=0 bash post_train/v28/submit_baseline.sh)"
   else
     next=${FIRST}_r$((n + 1))
     [ -d "$R/results/$next" ] && blocked+=("$R/results/$next exists already")
@@ -164,8 +189,9 @@ cmd_run() {
 
   ensure_logs
   cd "$MAIN"
-  if [ "$n" = 0 ]; then
-    ZIP=$zip REF=$ref_run KAGGLE=$KAGGLE bash post_train/v28/submit_baseline.sh
+  if [ "$first" = 1 ]; then
+    # PACED=0: only the unpaced run counts here; the default zip's chain would also queue a paced one
+    ZIP=$zip REF=$ref_run KAGGLE=$KAGGLE PACED=0 bash post_train/v28/submit_baseline.sh
     echo "(that logs/ is the main track's, $MAIN/logs: from this repo, $LOGS/main_track)"
     return 0
   fi
@@ -196,12 +222,13 @@ cmd_check_train() {
   echo "queued job ${j%%;*}; its log: $LOGS/opsd_train_check_${j%%;*}.out (and .err)"
 }
 
-cmd_report() {
-  local out
-  out=$PAPER/report_$(date +%m%d-%H%M)
+cmd_report() {   # cmd_report [N]: the tables of the runs on wheelhouse vN (default: ours), e.g. 28 for the v28 record
+  local wh=${1:-$WH} out
+  [ -n "$wh" ] || fail "no wheelhouse version in $R/wheelhouse/.version; name one: opsd_baselines.sh report <N>"
+  out=$PAPER/report_v${wh}_$(date +%m%d-%H%M)
   if [ "$GO" = 1 ]; then mkdir -p "$PAPER"; fi
   short_job opsd_report -p short -t 00:30:00 --mem=8G \
-    --wrap "$PY $HERE/baseline_report.py --results $R/results --ids $IDS --json $out.json > $out.md" \
+    --wrap "$PY $HERE/baseline_report.py --results $R/results --ids $IDS --wheelhouse $wh --json $out.json > $out.md" \
     || fail "the report job failed; its log is above"
   [ "$GO" = 1 ] || return 0
   echo "report: $out.md and $out.json"
@@ -213,6 +240,6 @@ case ${1:-status} in
   run) shift; cmd_run "$@" ;;
   split) cmd_split ;;
   check-train) cmd_check_train ;;
-  report) cmd_report ;;
+  report) cmd_report "${2:-}" ;;
   *) sed -n '2,8p' "$0"; exit 1 ;;
 esac
