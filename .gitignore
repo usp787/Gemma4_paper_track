@@ -4,3 +4,7 @@
 # Slurm logs stay on Explorer: they name task ids. Only the folder itself is in git.
 logs/*
 !logs/.gitkeep
+
+# Python bytecode, written whenever a script is imported or run
+__pycache__/
+*.pyc
