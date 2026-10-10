@@ -16,7 +16,14 @@ This folder holds the baseline arms of the [OPSD study](../opsd_assessment.md): 
 - **Step 1 is done:** `off`'s first v30 run, `baseline_nothink_v30_zip`, resolved **22/70** (fastapi 16/60, requests 6/9, httpx 0/1).
   - Its chain ran 2026-10-10 12:43–15:12 EDT, and every job completed: zip check 10969649, smoke 10969650, gate 10969651 (PASS: no reply thought, no budget sent), driver 10969652 (10 shards), report 10969653.
   - All 70 tasks finished, with no harness errors and no context overflow. Its report is `results/baseline_nothink_v30_zip/diagnosis.md`.
-  - What the run shows is under [What the v30 runs say](#what-the-v30-runs-say). The next step is to be discussed.
+  - What the run shows is under [What the v30 runs say](#what-the-v30-runs-say).
+- **Step 2 is `off_args`, written 2026-10-10.** It is `off`'s files plus rules for tool-call arguments in both prompts (`agents/baseline_nothink_args` in the main-track repo), and it replaces `v1` as step 2.
+  - **Why:** half of `off`'s ranged `read_file` and `edit_file` calls were malformed, and later calls copied the slips ([below](#what-the-v30-runs-say)).
+  - **The rules avoid what broke:** no line ranges or other optional arguments (other lines come through `sed -n` in `run_command`), `edit_file` always with all three arguments, and code with real line breaks.
+  - **Why not built on `v1`:** its prompt asks for narrow line ranges, the pattern that broke. Its other changes (temperature 1.0, 100 calls, anti-repeat rules) act on the repeats, which come later. A single change keeps the effect on malformed calls measurable against `off`.
+  - **Commands:** package it with `cd ~/Gemma4_kaggle_repo && sbatch slurm/package_submission.slurm agents/baseline_nothink_args` (~3 min). Once that job has ended, run `GO=1 bash baseline/opsd_baselines.sh run off_args` from this repo.
+  - **Its zip:** `arms.tsv` has `-`, so the script runs the agent's only packaged zip. Pin its name there later.
+  - **What to read off its run:** the malformed share against `off`'s 21.1%, then the stale repeats and the score.
 - **Env builds still need `PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt`.** The monthly /scratch purge deleted the conda envs' CA bundle on 2026-10-07, and that isn't fixed.
 - **What v29 changed, and v30 keeps:** the code-graph tools, their descriptions and the handling of tool errors. A submitted patch also loses its hunks in test and config files before it is graded. Thinking works as on v28 for all our agents, which set `include_thoughts: true`.
 - **Runs, smokes and gates are named after the wheelhouse version.** `arms.tsv`'s `{v}` stands for it, and `baseline_report.py` counts one version's runs. The v28 and v29 runs in the table below are their versions' record; `bash baseline/opsd_baselines.sh report 28` (or `29`) rebuilds their tables.
@@ -35,9 +42,10 @@ This folder holds the baseline arms of the [OPSD study](../opsd_assessment.md): 
 |---|---|---|---|---|---|---|---|
 | `off` | `baseline_nothink` (3909932c84e0) | thinking off; the host's sample prompt, temperature 0.2, 60 calls | `baseline_nothink_v30_zip` **22** (10-10) | none | `baseline_nothink_v28_zip` **19** (10-05) | v28: 3/58 | step 7, if it becomes the student |
 | `on` | `baseline_noadapter` (d9db81dd3d76) | thinking on (budget 4096); otherwise the same files as `off` | `base_v30_l40s` **28** (10-10, from `agents/`) | `base_v29_l40s` **26** (10-09, from `agents/`) | `base_v28_zip` **25** (10-04), `base_v28_l40s` **20** (10-01, from `agents/`) | v28: 7/58 | step 4 |
-| `v1` | `agentic_v1` (6cd3c3ec1a74) | thinking off; V1's rewritten prompt, temperature 1.0, 100 calls, 300-s commands, no analyzer | none | none | none | – | steps 2–3 |
+| `v1` | `agentic_v1` (6cd3c3ec1a74) | thinking off; V1's rewritten prompt, temperature 1.0, 100 calls, 300-s commands, no analyzer | none | none | none | – | not scheduled: `off_args` took step 2 |
 | `v1_think` | `agentic_v1_think` (6418b8752004) | thinking on (4096) with V1's prompt, but temperature 0.2, 60 calls and one more prompt line | none | none | none | v28: 8/58; the anchor, pending since 10-09 (may be scored on v30) | decision 2 |
 | `v2` | `agentic_v2` (8dcadfe313d3) | V1 plus the advisor (thinking on, called by the model) and two skills: **the model decides** | none | none | `agentic_v2_v28_zip` **25** (10-06) | – | step 5 |
+| `off_args` | `baseline_nothink_args` (not packaged yet) | thinking off; `off`'s files plus rules for tool-call arguments in both prompts | none | none | none | – | steps 2–3 |
 
 - **Not arms (v28):**
   - `base_v28_zip_paced` (18/70) is paced, so the report leaves it out.
@@ -73,6 +81,9 @@ From `baseline_report.py`, [trigger_replay.py](../adaptive_inference/trigger_rep
   - ADK drops unknown keys silently. So all 445 returned `ok` with the file's opening lines, not the range asked for.
   - The next call repeated it exactly 62% of the time, and was another malformed `read_file` 15% of the time. Only 4% recovered with a well-formed one.
   - Of `off`'s stale repeats, 42% re-run a command, 30% repeat a malformed `read_file`, 19% re-read with a well-formed one, and 8% repeat a malformed `edit_file`.
+  - **A line range is what breaks:** 445 of 880 `read_file` calls with one were malformed, and none of 296 without. A task's first slip is rare (6% of ranged reads), but 82% of the ranged reads after it repeat it.
+  - **`edit_file` breaks the same way:** 106 of its 210 calls were malformed. 96 of them carry JSON-escaped code (backslash-n and no real line breaks), and `old_string` is lost. 20% of a task's edits are escaped before its first escaped one, and 88% after it.
+  - **The cause:** the model writes JSON inside Gemma 4's tool-call syntax, which has bare argument names and its own string delimiter. vLLM's parser then reads `start_line":151` as an argument named `start_line"`, and code outside the delimiters as more argument names.
 - **`off`'s bad calls are spread over many tasks, while `on`'s sit in a few.**
   - `off`: its 10 worst tasks hold 44% of its bad calls, and its chain stays at 83% without the 5 worst.
   - `on`: its 3 worst hold 42%, and its chain falls from 53.8% to 19.4% without the 5 worst.
@@ -111,8 +122,8 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
 | R | `cd ~/Gemma4_kaggle_repo && PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt bash baseline/submit_realign.sh`, the main track's re-alignment (for v30, the full commands are in its `post_train/RFT/v30.md`) | the envs, a smoke and its gate, the LoRA check, then `base_<v>_l40s`, `on`'s first run on that version. Done for v30 on 2026-10-10 (jobs 10950493–10950499): `base_v30_l40s` 28/70. On v29 (2026-10-09): 26/70 | builds ~45 min, then ~4 h |
 | G | `cd ~/Gemma4_kaggle_repo && PINS=1 sbatch baseline/grader_check.slurm` | gold and empty patches on all 129 tasks: do the 109 sound tasks, and so the 70 dev tasks, still hold? After R's harness build. Done for v30 (job 10950499) and v29 (10933579): the same 109 both times | CPU, 10 min |
 | 1 | `GO=1 bash baseline/opsd_baselines.sh run off` | `off`'s first v30 run, through the main track's chain (check, smoke, gate, run, report against `base_v30_l40s`). Done 2026-10-10 (jobs 10969649–10969653): 22/70 | ~3.5 h, ~6 L40S-h |
-| 2 | `GO=1 bash baseline/opsd_baselines.sh run v1` | `v1`'s first v30 run, the same way, against `off` | ~3.5 h, ~6 L40S-h |
-| 3 | `GO=1 bash baseline/opsd_baselines.sh run v1` | `v1`'s second run, then its report | ~2.5 h, ~5 L40S-h |
+| 2 | `cd ~/Gemma4_kaggle_repo && sbatch slurm/package_submission.slurm agents/baseline_nothink_args`; once it has ended, `GO=1 bash baseline/opsd_baselines.sh run off_args` | package `off_args` (~3 min), then its first v30 run through the main track's chain, against `off` | ~3.5 h, ~6 L40S-h |
+| 3 | `GO=1 bash baseline/opsd_baselines.sh run off_args` | `off_args`'s second run, then its report | ~2.5 h, ~5 L40S-h |
 | 4 | `GO=1 bash baseline/opsd_baselines.sh run on` | `on`'s zip run, `base_v30_zip`: its second v30 run | ~3.5 h, ~6 L40S-h |
 | 5 | `GO=1 bash baseline/opsd_baselines.sh run v2`, twice | `v2`'s two v30 runs | ~6 h, ~11 L40S-h |
 | 6 | `GO=1 bash baseline/opsd_baselines.sh run <thinking-on arm>`, twice | the thinking-on arm for the student's config (decision 2) | ~6 h |
@@ -124,12 +135,13 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
   - A first run (a chain) needs an empty eval queue: `submit_baseline.sh` refuses to start otherwise.
   - A later run can wait for the one before: `AFTER=<driver job id>`.
   - `opsd_baselines.sh` refuses to queue while Kaggle's wheelhouse differs from ours, and a first run passes `PACED=0`, since only unpaced runs count here.
+- **Steps 4–7 and decisions 2–3 were planned around `v1`.** They are re-planned once `off_args` has run.
 - **Freeze the student config after step 3:**
-  - `v1`, if both its v30 runs finish all 70 tasks with no harness errors and resolve at least what `off`'s v30 run does;
+  - `off_args`, if both its v30 runs finish all 70 tasks with no harness errors and resolve at least what `off`'s v30 run does (22);
   - otherwise `off`.
-- **Then start the round-0 rollouts** for OPSD, on v30 (A100, `gpu` partition, in parallel with steps 4–7). For example, with `v1` as the student:
+- **Then start the round-0 rollouts** for OPSD, on v30 (A100, `gpu` partition, in parallel with steps 4–7). For example, with `off_args` as the student:
   ```bash
-  cd ~/Gemma4_kaggle_repo && PINS=1 TIME=02:00:00 bash baseline/submit_rollouts.sh agents/agentic_v1 /scratch/$USER/gemma4/paper/split/train59.txt opsd_r0_v1 4 1
+  cd ~/Gemma4_kaggle_repo && PINS=1 TIME=02:00:00 bash baseline/submit_rollouts.sh agents/baseline_nothink_args /scratch/$USER/gemma4/paper/split/train59.txt opsd_r0_off_args 4 1
   ```
   That is 4 passes over the 59 training tasks, one 2-h A100 job each, about 8 A100-hours.
 - `bash baseline/opsd_baselines.sh status` shows the prerequisites, every arm's runs with their scores, and each arm's next step.
@@ -170,15 +182,15 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
 
 | File | What it does |
 |---|---|
-| [arms.tsv](arms.tsv) | one row per arm: agent, zip, run names with `{v}` for the wheelhouse version, reference arm, Kaggle scores as `v<N>:k/n`. Add a row for a new arm. |
-| [opsd_baselines.sh](opsd_baselines.sh) | `status`, `run <arm>`, `split`, `check-train` and `report [N]`, all on our wheelhouse version. Nothing is queued without `GO=1`. |
+| [arms.tsv](arms.tsv) | one row per arm: agent, zip (`-` until pinned), run names with `{v}` for the wheelhouse version, reference arm, Kaggle scores as `v<N>:k/n`. Add a row for a new arm. |
+| [opsd_baselines.sh](opsd_baselines.sh) | `status`, `run <arm>`, `split`, `check-train` and `report [N]`, all on our wheelhouse version. Nothing is queued without `GO=1`. An unpinned zip is the agent's only packaged zip. |
 | [make_split.py](make_split.py) | writes `dev70.txt`, `train59.txt`, `train59_sound.txt`, `train59_unsound.txt` and `split.json` to scratch, after checking the counts and that dev is all sound |
 | [train_check.slurm](train_check.slurm) | gold and empty patches on the training tasks, in the `PINS=1` env; lists what changed since the 2026-09-29 grader check |
 | [baseline_report.py](baseline_report.py) | the tables, as Markdown, plus JSON for figures. stdlib only; runs on scratch or on pulled run dirs |
 
 ## Decisions pending
 
-1. **The student config:** `v1` or `off`, by the rule under Order of work.
+1. **The student config:** `off_args` or `off`, by the rule under Order of work. Decisions 2 and 3 were written around `v1`, and are revisited once `off_args` has run.
 2. **`v1`'s thinking-on arm.** `v1_think` differs from `v1` in more than thinking: temperature 0.2 against 1.0, 60 calls against 100, and one prompt line.
    - (a) Use it as it is. It has a Kaggle score (8/58 on v28; as the anchor, pending since 2026-10-09), but every comparison carries that confound.
    - (b) A new agent dir in the main-track repo, `agents/agentic_v1_on`: `agentic_v1` with `thinking_budget: 4096`, one line.
@@ -197,6 +209,20 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
   - strip the thoughts, re-render with thinking off, and train;
   - then 2 runs here, as a new arm.
 - **The Gate 1 diagnostic** (teacher scoring on `off`'s 70 trajectories), from [../opsd_assessment.md](../opsd_assessment.md).
+
+## Tested (locally, 2026-10-10)
+
+- **`opsd_baselines.sh` with an unpinned zip,** against a stub scratch root, stub `squeue` and `sbatch`, and a stub `submit_baseline.sh`:
+  - no zip: `run` and `status` print the packaging command, and `GO=1` refuses;
+  - one zip: the script uses it and says so, skipping `.zip.invalid` files, and `GO=1` hands the chain that zip and `REF=baseline_nothink_v30_zip`;
+  - two zips: it refuses and lists them;
+  - pinned arms are unchanged.
+- **`agents/baseline_nothink_args`:**
+  - its YAML parses;
+  - it differs from `baseline_nothink` only in the two prompts and `agent.yaml`'s header;
+  - the prompts hold no braces, since ADK reads `{name}` in an instruction as a session-state variable;
+  - packaging on Explorer validates it with the host's compiler.
+- `bash -n` on `opsd_baselines.sh`.
 
 ## Tested (locally, 2026-10-08)
 

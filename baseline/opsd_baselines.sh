@@ -22,6 +22,8 @@
 # track's build_vllm_env.slurm writes), and it must equal Kaggle's. arms.tsv's {v} becomes that tag, v29 say, a gate
 # passed on another version never counts, and the report counts one version's runs. KAGGLE_WH=<n> fakes Kaggle's
 # version, for tests.
+# Zips: an arm whose zip is "-" in arms.tsv runs its agent's only packaged zip. With none it says how to package the
+# agent; with several it refuses until one is pinned in arms.tsv.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 LOGS=$(dirname "$HERE")/logs
@@ -39,13 +41,21 @@ V=v${WH:-unknown}                           # the tag in run, smoke and gate nam
 fail() { echo "FAIL: $*" >&2; exit 1; }
 lines() { if [ -f "$1" ]; then wc -l < "$1"; else echo 0; fi; }
 arms() { grep -v '^#' "$HERE/arms.tsv" | awk -F'\t' 'NF >= 8 {print $1}'; }
-arm_row() {   # arm_row <arm>: sets AGENT ZIP FIRST EXTRA REF KAGGLE ABOUT from arms.tsv, for wheelhouse $V
-  local line
+arm_row() {   # arm_row <arm>: sets AGENT ZIP FIRST EXTRA REF KAGGLE ABOUT (and ZIP_NOTE) from arms.tsv, for wheelhouse $V
+  local line zips=()
   line=$(grep -v '^#' "$HERE/arms.tsv" | awk -F'\t' -v a="$1" '$1 == a' | head -1)
   [ -n "$line" ] || fail "no arm '$1' in arms.tsv; the arms are: $(arms | paste -sd' ')"
   IFS=$'\t' read -r _ AGENT ZIP FIRST EXTRA REF KAGGLE ABOUT <<<"$line"
   FIRST=${FIRST//"{v}"/$V}; EXTRA=${EXTRA//"{v}"/$V}
   KAGGLE=$(tr ',' '\n' <<<"$KAGGLE" | sed -n "s/^$V://p" | head -1)   # this version's Kaggle score, if any
+  ZIP_NOTE=
+  if [ "$ZIP" = - ]; then   # not pinned yet: the agent's only zip, named <agent>_<YYYYmmdd-HHMM>_<rev>.zip by packaging
+    mapfile -t zips < <(cd "$R/submissions" 2>/dev/null \
+      && ls -1 -- "$AGENT"_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]_*.zip 2>/dev/null || true)
+    if [ ${#zips[@]} -eq 1 ]; then ZIP=${zips[0]}; ZIP_NOTE="not pinned in arms.tsv; using the only zip of agents/$AGENT, $ZIP"
+    elif [ ${#zips[@]} -gt 1 ]; then ZIP_NOTE="agents/$AGENT has ${#zips[@]} zips; pin the one to run in arms.tsv: ${zips[*]}"
+    else ZIP_NOTE="agents/$AGENT is not packaged yet: (cd $MAIN && sbatch slurm/package_submission.slurm agents/$AGENT)"; fi
+  fi
   return 0
 }
 kaggle_version() {   # Kaggle's current wheelhouse version, read as baseline/wheelhouse_check.sh reads it; "" if unknown
@@ -134,6 +144,7 @@ cmd_status() {
     else next="run $((n + 1)): ${FIRST}_r$((n + 1))"; fi
     echo "$a: ${line:-no runs}"
     echo "    gate $gate; next $next"
+    [ -z "$ZIP_NOTE" ] || echo "    zip: $ZIP_NOTE"
   done
 }
 
@@ -141,7 +152,8 @@ cmd_run() {
   local a=${1:?usage: opsd_baselines.sh run <arm>} zip runs n first kv ref_run next gate out d j blocked=()
   arm_row "$a"
   zip=$R/submissions/$ZIP
-  [ -f "$zip" ] || blocked+=("no zip $zip")
+  [ -f "$zip" ] || blocked+=("${ZIP_NOTE:-no zip $zip}")
+  if [ -f "$zip" ] && [ -n "$ZIP_NOTE" ]; then echo "zip: $ZIP_NOTE"; fi
   model_ok || blocked+=("the model is incomplete: (cd $MAIN && sbatch slurm/fetch_model.slurm) first")
   [ "$(lines "$IDS")" = 70 ] || blocked+=("$IDS should hold the 70 dev-sound ids")
   [ -d "$MAIN/baseline" ] || blocked+=("no main-track checkout at $MAIN (set MAIN=...)")

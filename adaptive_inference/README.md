@@ -148,10 +148,10 @@ Read on arXiv on 2026-10-08: abstracts only, plus Second Thought's results table
 
 | Arm | Who decides | Status |
 |---|---|---|
-| student config, thinking off | nobody | `v1`: not run yet; `off`: 19/70 on v28, 22/70 on v30 |
+| student config, thinking off | nobody | `off_args` (`off` plus tool-argument rules): step 2; `off`: 19/70 on v28, 22/70 on v30 |
 | student config, thinking on | always | after a decision in [../baseline/README.md](../baseline/README.md#decisions-pending) |
 | + advisor | the model | `v2`: 25/70 on v28 (also adds two skills) |
-| + controller | a rule | after `v1`'s runs |
+| + controller | a rule | after the student config's runs |
 | OPSD student | training | round 1 |
 
 **Metrics:** OPSD's, plus the share of calls that think and the thinking tokens per task.
