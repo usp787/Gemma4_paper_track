@@ -12,7 +12,7 @@ This file answers three questions:
 2. Is it new?
 3. What do we build and run, and when?
 
-The baseline runs it needs are in [../baseline/](../baseline/README.md).
+The baseline runs it needs are in [../baseline/](../baseline/README.md). They run on wheelhouse v30 since 2026-10-10, while the trace numbers below come from v28 runs.
 
 ## Bottom line
 
@@ -148,9 +148,9 @@ Read on arXiv on 2026-10-08: abstracts only, plus Second Thought's results table
 
 | Arm | Who decides | Status |
 |---|---|---|
-| student config, thinking off | nobody | `v1`: not run yet; `off`: 19/70 |
+| student config, thinking off | nobody | `v1`: not run yet; `off`: 19/70 on v28, 22/70 on v30 |
 | student config, thinking on | always | after a decision in [../baseline/README.md](../baseline/README.md#decisions-pending) |
-| + advisor | the model | `v2`: 25/70 (also adds two skills) |
+| + advisor | the model | `v2`: 25/70 on v28 (also adds two skills) |
 | + controller | a rule | after `v1`'s runs |
 | OPSD student | training | round 1 |
 

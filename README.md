@@ -273,9 +273,9 @@ Any paper in these areas has to cite this work and go beyond it.
   - repeat share and malformed share
   - the chance that a malformed call follows a malformed call
   - time and tokens per task
-- **Baselines already measured on v28:**
-  - thinking-off base: 19/70
-  - thinking-on base: 25/70 (20/70 in a second run)
+- **Baselines measured so far** (resolved of 70; the current status is in [baseline/](baseline/README.md)):
+  - thinking-off base: 19/70 on v28, 22/70 on v30
+  - thinking-on base: 25/70 and 20/70 on v28, 26/70 on v29, 28/70 on v30
 - **Ablations and controls:**
   - full gold patch vs. a location-only hint
   - a wrong-reference control (another task's patch)
@@ -314,7 +314,7 @@ Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
 - **Cluster limits:**
   - Training runs on an H200 (141 GB). The `gpu` partition caps jobs at 8 h and 1 GPU each, with 4 running per user, so training must resume from checkpoints.
   - Rollouts and evals run on L40S.
-- **Serving:** vLLM 0.19.1 with wheelhouse v28 serves each adapter at its own rank. No adapter bundle has a confirmed Kaggle score yet, so our Kaggle submission also tests that path.
+- **Serving:** vLLM 0.19.1 serves each adapter at its own rank. Wheelhouses v28 to v30 carry the same vllm wheel, and v30 is ours since 2026-10-10. No adapter bundle has a confirmed Kaggle score yet, so our Kaggle submission also tests that path.
 
 ### Plan
 
@@ -335,7 +335,7 @@ Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
   - Repeated calls: 9% vs 50%. Malformed calls: 2.2% vs 24%.
   - A malformed call follows a malformed call 47% vs 92% of the time.
   - With thinking on, thinking takes 65–71% of agent time.
-- **LoRA slowdown on v28** (`post_train/RFT/v28.md`, `post_train/README.md`): 8–9% at rank 8–16, 16% at rank 32 and 21% at rank 64.
+- **LoRA slowdown on v28** (`post_train/RFT/v28.md`, `post_train/README.md`): 8–9% at rank 8–16, 16% at rank 32 and 21% at rank 64. It stayed about the same on v29 and v30 (`post_train/RFT/v30.md`).
 - **RFT round 0** (`post_train/RFT/round0.md`, v25):
   - Trained at rank 64 on 11 tasks, 19 trajectories and 221 samples.
   - Resolved 8/70 against the base's 23/70, and 2/59 vs 12/59 on unseen tasks.
@@ -350,7 +350,7 @@ Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
 
 - **This repo** holds the paper (Writeup markdown and/or LaTeX), the figures, and the scripts that turn our logs into the numbers we cite.
 - **Experiments, data and models** stay in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo) and run on NEU Explorer, per that repo's CLAUDE.md.
-- **[baseline/](baseline/README.md)** records the status of the OPSD baseline arms. Its launcher queues their runs through that repo's eval tooling; you submit, with `GO=1`.
+- **[baseline/](baseline/README.md)** records the status of the OPSD baseline arms, which run on wheelhouse v30 since 2026-10-10. Its launcher queues their runs through that repo's eval tooling; you submit, with `GO=1`.
 - **[adaptive_inference/](adaptive_inference/README.md)** holds the per-call thinking controller and the "who decides when the agent thinks" comparison.
 - **Don't commit competition data here** (tasks, snapshots, graphs, embeddings). The rules forbid redistributing it, and this repo may go public along with the paper.
 
