@@ -13,4 +13,4 @@ on	baseline_noadapter	baseline_noadapter_20260925-2342_fd03bc4.zip	base_{v}_zip	
 v1	agentic_v1	agentic_v1_20261005-2348_c56c8e0.zip	agentic_v1_{v}_zip	-	off	-	thinking off; V1's prompt, temperature 1.0, 100 calls, 300-s commands: the OPSD student if clean
 v1_think	agentic_v1_think	agentic_v1_think_20261005-2347_c56c8e0.zip	agentic_v1_think_{v}_zip	-	v1	v28:8/58	thinking on (4096) with V1's prompt, but temperature 0.2, 60 calls and one more prompt line
 v2	agentic_v2	agentic_v2_20261005-2350_c56c8e0.zip	agentic_v2_{v}_zip	-	v1	-	V1 plus the advisor (thinking on, called by the model) and two skills: the model decides
-off_args	baseline_nothink_args	-	baseline_nothink_args_{v}_zip	-	off	-	thinking off; the files of off, plus rules for tool-call arguments in both prompts (required arguments only, no line ranges, real line breaks)
+off_args	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f.zip	baseline_nothink_args_{v}_zip	-	off	-	thinking off; the files of off, plus rules for tool-call arguments in both prompts (required arguments only, no line ranges, real line breaks)
