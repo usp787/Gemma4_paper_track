@@ -27,6 +27,13 @@ This folder holds the baseline arms of the [OPSD study](../opsd_assessment.md): 
     - Its chain ran 18:55–21:07 EDT, and every job completed: zip check 10975830, smoke 10975831, gate 10975832 (PASS: no reply thought, no budget sent), driver 10975833 (10 shards), report 10975834.
     - All 70 tasks finished, with no harness errors.
   - **What it shows:** malformed calls fell from 21.1% to 1.4%, while the score moved within noise. Details are under [What step 2 shows](#what-step-2-shows).
+- **Step 3 is next: `off_args`'s second run.** `GO=1 bash baseline/opsd_baselines.sh run off_args` queues `baseline_nothink_args_v30_zip_r2` through `submit_eval.sh`, then its report against the first run.
+  - Checked on Explorer 2026-10-10 (read-only): the pinned zip is there, its v30 smoke gate passed (`smoke_zip_532374430fe2_v30_1010-1856/GATE_OK`), and no `_r` run exists yet.
+  - Pull this repo on Explorer first; its checkout was 2 commits behind.
+  - Expected cost, from the first run's driver: ~1.9 h, ~3.5 L40S-h (a later run has no smoke).
+- **Gate 1 is scripted** in [../gate1/](../gate1/README.md) (2026-10-10), not run yet. It scores `off_args`'s trajectories with every teacher, and its states are the stuck loops' own: the second and later identical copies, returns to an earlier call, calls after an empty result.
+  - It also replays, at those states, what breaks the copy: thinking, a note, fewer copies, temperature.
+  - It runs on an A100, about 5–7 A100-h, so it doesn't compete for the L40S slots.
 - **Env builds still need `PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt`.** The monthly /scratch purge deleted the conda envs' CA bundle on 2026-10-07, and that isn't fixed.
 - **What v29 changed, and v30 keeps:** the code-graph tools, their descriptions and the handling of tool errors. A submitted patch also loses its hunks in test and config files before it is graded. Thinking works as on v28 for all our agents, which set `include_thoughts: true`.
 - **Runs, smokes and gates are named after the wheelhouse version.** `arms.tsv`'s `{v}` stands for it, and `baseline_report.py` counts one version's runs. The v28 and v29 runs in the table below are their versions' record; `bash baseline/opsd_baselines.sh report 28` (or `29`) rebuilds their tables.
@@ -116,6 +123,7 @@ From `baseline_report.py`, [trigger_replay.py](../adaptive_inference/trigger_rep
 - **What is left is a stuck loop, not a format problem.**
   - 88% of the remaining stale repeats are identical `run_command` calls, typically a `grep` or `find` that returns nothing or the same lines, re-run up to 53 times.
   - Once a call is bad, the next one still is 80% of the time.
+  - How the loops start, lock in and end, against thinking on in the same states: [../gate1/README.md](../gate1/README.md#why-these-classes-the-stuck-loops-of-off_args).
 - **The failures moved from loops to wrong patches.**
   - Of 46 failures, 7 are loops (`off`: 21), 16 are mixed and 23 are clean.
   - 20 of the clean ones submitted a wrong patch.
@@ -154,7 +162,8 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
 | G | `cd ~/Gemma4_kaggle_repo && PINS=1 sbatch baseline/grader_check.slurm` | gold and empty patches on all 129 tasks: do the 109 sound tasks, and so the 70 dev tasks, still hold? After R's harness build. Done for v30 (job 10950499) and v29 (10933579): the same 109 both times | CPU, 10 min |
 | 1 | `GO=1 bash baseline/opsd_baselines.sh run off` | `off`'s first v30 run, through the main track's chain (check, smoke, gate, run, report against `base_v30_l40s`). Done 2026-10-10 (jobs 10969649–10969653): 22/70 | ~3.5 h, ~6 L40S-h |
 | 2 | `cd ~/Gemma4_kaggle_repo && sbatch slurm/package_submission.slurm agents/baseline_nothink_args`; once it has ended, `GO=1 bash baseline/opsd_baselines.sh run off_args` | package `off_args` (~3 min), then its first v30 run through the main track's chain, against `off`. Done 2026-10-10 (jobs 10975830–10975834): 24/70 | ~3.5 h, ~6 L40S-h |
-| 3 | `GO=1 bash baseline/opsd_baselines.sh run off_args` | `off_args`'s second run, then its report | ~2.5 h, ~5 L40S-h |
+| 3 | `GO=1 bash baseline/opsd_baselines.sh run off_args` | `off_args`'s second run, `baseline_nothink_args_v30_zip_r2`, then its report against the first. Prerequisites checked 2026-10-10 | ~1.9 h, ~3.5 L40S-h (the first run's driver: 1 h 52 min) |
+| G1 | `GO=1 bash gate1/submit_gate1.sh` | Gate 1 ([../gate1/](../gate1/README.md)) on `off_args`'s first run; after step 3, again with both runs. `PATCH=1` adds the gold-patch teachers | A100: ~3–4 h, plus ~2.5 h with `PATCH=1`; no L40S |
 | 4 | `GO=1 bash baseline/opsd_baselines.sh run on` | `on`'s zip run, `base_v30_zip`: its second v30 run | ~3.5 h, ~6 L40S-h |
 | 5 | `GO=1 bash baseline/opsd_baselines.sh run v2`, twice | `v2`'s two v30 runs | ~6 h, ~11 L40S-h |
 | 6 | `GO=1 bash baseline/opsd_baselines.sh run <thinking-on arm>`, twice | the thinking-on arm for the student's config (decision 2) | ~6 h |
@@ -239,7 +248,7 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
   - thinking-on rollouts of the student's config on the 59 training tasks;
   - strip the thoughts, re-render with thinking off, and train;
   - then 2 runs here, as a new arm.
-- **The Gate 1 diagnostic** (teacher scoring on `off`'s 70 trajectories), from [../opsd_assessment.md](../opsd_assessment.md).
+- ~~The Gate 1 diagnostic~~: scripted in [../gate1/](../gate1/README.md) on 2026-10-10, on `off_args`'s trajectories rather than `off`'s.
 
 ## Tested (locally, 2026-10-10)
 
