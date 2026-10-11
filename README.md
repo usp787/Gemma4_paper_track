@@ -275,6 +275,7 @@ Any paper in these areas has to cite this work and go beyond it.
   - time and tokens per task
 - **Baselines measured so far** (resolved of 70; the current status is in [baseline/](baseline/README.md)):
   - thinking-off base: 19/70 on v28, 22/70 on v30
+  - thinking off with rules for tool-call arguments (`off_args`): 24/70 on v30, with malformed calls down from 21% to 1.4%
   - thinking-on base: 25/70 and 20/70 on v28, 26/70 on v29, 28/70 on v30
 - **Ablations and controls:**
   - full gold patch vs. a location-only hint

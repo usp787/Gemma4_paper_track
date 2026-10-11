@@ -23,8 +23,10 @@ This folder holds the baseline arms of the [OPSD study](../opsd_assessment.md): 
   - **Why not built on `v1`:** its prompt asks for narrow line ranges, the pattern that broke. Its other changes (temperature 1.0, 100 calls, anti-repeat rules) act on the repeats, which come later. A single change keeps the effect on malformed calls measurable against `off`.
   - **Commands:** package it with `cd ~/Gemma4_kaggle_repo && sbatch slurm/package_submission.slurm agents/baseline_nothink_args` (~3 min). Once that job has ended, run `GO=1 bash baseline/opsd_baselines.sh run off_args` from this repo.
   - **Packaged** 2026-10-10 18:52 (job 10975791, git ebc522f) as `baseline_nothink_args_20261010-1852_ebc522f.zip` (sha256 532374430fe2), now pinned in `arms.tsv`. A first try (10975770) stopped at its check, since the checkout hadn't been pulled.
-  - **Its first run's chain was queued 18:55:** zip check 10975830 (passed), smoke 10975831, gate 10975832, driver 10975833 (`baseline_nothink_args_v30_zip`, 10 shards), report 10975834 against `baseline_nothink_v30_zip`.
-  - **What to read off its run:** the malformed share against `off`'s 21.1%, then the stale repeats and the score.
+  - **Its first run is done: `baseline_nothink_args_v30_zip` resolved 24/70** (fastapi 16/60, requests 7/9, httpx 1/1).
+    - Its chain ran 18:55–21:07 EDT, and every job completed: zip check 10975830, smoke 10975831, gate 10975832 (PASS: no reply thought, no budget sent), driver 10975833 (10 shards), report 10975834.
+    - All 70 tasks finished, with no harness errors.
+  - **What it shows:** malformed calls fell from 21.1% to 1.4%, while the score moved within noise. Details are under [What step 2 shows](#what-step-2-shows).
 - **Env builds still need `PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt`.** The monthly /scratch purge deleted the conda envs' CA bundle on 2026-10-07, and that isn't fixed.
 - **What v29 changed, and v30 keeps:** the code-graph tools, their descriptions and the handling of tool errors. A submitted patch also loses its hunks in test and config files before it is graded. Thinking works as on v28 for all our agents, which set `include_thoughts: true`.
 - **Runs, smokes and gates are named after the wheelhouse version.** `arms.tsv`'s `{v}` stands for it, and `baseline_report.py` counts one version's runs. The v28 and v29 runs in the table below are their versions' record; `bash baseline/opsd_baselines.sh report 28` (or `29`) rebuilds their tables.
@@ -46,7 +48,7 @@ This folder holds the baseline arms of the [OPSD study](../opsd_assessment.md): 
 | `v1` | `agentic_v1` (6cd3c3ec1a74) | thinking off; V1's rewritten prompt, temperature 1.0, 100 calls, 300-s commands, no analyzer | none | none | none | – | not scheduled: `off_args` took step 2 |
 | `v1_think` | `agentic_v1_think` (6418b8752004) | thinking on (4096) with V1's prompt, but temperature 0.2, 60 calls and one more prompt line | none | none | none | v28: 8/58; the anchor, pending since 10-09 (may be scored on v30) | decision 2 |
 | `v2` | `agentic_v2` (8dcadfe313d3) | V1 plus the advisor (thinking on, called by the model) and two skills: **the model decides** | none | none | `agentic_v2_v28_zip` **25** (10-06) | – | step 5 |
-| `off_args` | `baseline_nothink_args` (532374430fe2) | thinking off; `off`'s files plus rules for tool-call arguments in both prompts | `baseline_nothink_args_v30_zip`: running (10-10) | none | none | – | step 2: running; then step 3 |
+| `off_args` | `baseline_nothink_args` (532374430fe2) | thinking off; `off`'s files plus rules for tool-call arguments in both prompts | `baseline_nothink_args_v30_zip` **24** (10-10) | none | none | – | step 3 |
 
 - **Not arms (v28):**
   - `base_v28_zip_paced` (18/70) is paced, so the report leaves it out.
@@ -92,6 +94,34 @@ From `baseline_report.py`, [trigger_replay.py](../adaptive_inference/trigger_rep
 - **On the 10 tasks only `on` resolved,** `off` looped on 5 (65–90% bad calls), was clean but wrong or slow on 4 (0–19%), and mixed on 1 (37%). On the 4 only `off` resolved, `on` ran out of the clock every time.
 - **The code-graph tools answer again:** `off`'s `search_similar_code` came back empty 14 times in 86. On v28, every call did.
 
+### What step 2 shows
+
+`off_args` against `off`, from the same tools on the traces pulled 2026-10-10. Each has one run.
+
+| Arm | Tool calls / task (median) | Agent s / task | First source edit (median s; never) | Stale repeats | Malformed | Next call bad, after a bad / a clean call |
+|---|---|---|---|---|---|---|
+| `off` | 38 | 129 | 40; 26 | 45.0% | 21.1% | 86.5% / 14.8% |
+| `off_args` | 28 | 116 | 39; 16 | 28.2% | 1.4% | 80.4% / 8.6% |
+
+- **The rules removed the malformed calls.** They fell from 551 to 32 (21.1% → 1.4%).
+  - The model still asked for a line range 112 times, against 880, and read other lines through `sed -n` 279 times. Only 3 ranged reads broke: with no earlier slip in the context, there was nothing to copy.
+  - `edit_file` calls without `old_string` fell from 82 to none. The 29 malformed edits left all carry escaped code, 14 of them in one task's loop.
+  - Escaped code is still in half the edits (83 of 161). The harness unescapes well-formed ones, so most of them apply.
+  - Side effect: 22 of the 279 `sed` reads hit `run_command`'s 5,000-character cap and came back cut.
+- **The repeats halved as a side effect,** since many had been copies of malformed calls.
+  - Stale repeats fell from 1,173 to 659, and tasks repeating in at least half their calls from 23 to 10.
+  - Runs of 5 or more identical calls fell from 56 in 33 tasks to 17 in 16 tasks.
+- **The score moved within noise:** 24 against 22, with 4 tasks gained and 2 lost (+2.0, 95% CI −3.0 to +7.0, p = 0.69).
+  - Against `on`: 9 tasks worse and 5 better, so the gap fell from 6 tasks to 4.
+- **What is left is a stuck loop, not a format problem.**
+  - 88% of the remaining stale repeats are identical `run_command` calls, typically a `grep` or `find` that returns nothing or the same lines, re-run up to 53 times.
+  - Once a call is bad, the next one still is 80% of the time.
+- **The failures moved from loops to wrong patches.**
+  - Of 46 failures, 7 are loops (`off`: 21), 16 are mixed and 23 are clean.
+  - 20 of the clean ones submitted a wrong patch.
+  - 11 tasks reached the clock (`off`: 9).
+- **On the 9 tasks only `on` resolved,** `off_args` looped on 3 (50–83% bad calls), was clean but wrong on 4, and ran out of the clock on 2.
+
 ### What the v28 runs say
 
 From `baseline_report.py` on the pulled runs, 2026-10-08. This is the v28 record: v29's tool changes, which v30 keeps, may move every column.
@@ -123,7 +153,7 @@ Each line is one command on the Explorer login node, from `~/Gemma4_paper_track`
 | R | `cd ~/Gemma4_kaggle_repo && PIP_CERT=/etc/pki/tls/certs/ca-bundle.crt bash baseline/submit_realign.sh`, the main track's re-alignment (for v30, the full commands are in its `post_train/RFT/v30.md`) | the envs, a smoke and its gate, the LoRA check, then `base_<v>_l40s`, `on`'s first run on that version. Done for v30 on 2026-10-10 (jobs 10950493–10950499): `base_v30_l40s` 28/70. On v29 (2026-10-09): 26/70 | builds ~45 min, then ~4 h |
 | G | `cd ~/Gemma4_kaggle_repo && PINS=1 sbatch baseline/grader_check.slurm` | gold and empty patches on all 129 tasks: do the 109 sound tasks, and so the 70 dev tasks, still hold? After R's harness build. Done for v30 (job 10950499) and v29 (10933579): the same 109 both times | CPU, 10 min |
 | 1 | `GO=1 bash baseline/opsd_baselines.sh run off` | `off`'s first v30 run, through the main track's chain (check, smoke, gate, run, report against `base_v30_l40s`). Done 2026-10-10 (jobs 10969649–10969653): 22/70 | ~3.5 h, ~6 L40S-h |
-| 2 | `cd ~/Gemma4_kaggle_repo && sbatch slurm/package_submission.slurm agents/baseline_nothink_args`; once it has ended, `GO=1 bash baseline/opsd_baselines.sh run off_args` | package `off_args` (~3 min), then its first v30 run through the main track's chain, against `off`. Running since 2026-10-10 18:55 (jobs 10975830–10975834) | ~3.5 h, ~6 L40S-h |
+| 2 | `cd ~/Gemma4_kaggle_repo && sbatch slurm/package_submission.slurm agents/baseline_nothink_args`; once it has ended, `GO=1 bash baseline/opsd_baselines.sh run off_args` | package `off_args` (~3 min), then its first v30 run through the main track's chain, against `off`. Done 2026-10-10 (jobs 10975830–10975834): 24/70 | ~3.5 h, ~6 L40S-h |
 | 3 | `GO=1 bash baseline/opsd_baselines.sh run off_args` | `off_args`'s second run, then its report | ~2.5 h, ~5 L40S-h |
 | 4 | `GO=1 bash baseline/opsd_baselines.sh run on` | `on`'s zip run, `base_v30_zip`: its second v30 run | ~3.5 h, ~6 L40S-h |
 | 5 | `GO=1 bash baseline/opsd_baselines.sh run v2`, twice | `v2`'s two v30 runs | ~6 h, ~11 L40S-h |
