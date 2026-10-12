@@ -15,9 +15,11 @@ Subcommands, in this order (gate1.slurm runs them, submit_gate1.sh queues the jo
   score     GPU (vLLM). Prompt logprobs of the student's own completion under each context, S (the student itself)
             first. Per token: the log-ratio and the top-k forward KL against S. Per call: the probability of the
             student's call at T=1 and at the run's sampling. Writes score_<context>.jsonl.
-  report    CPU, stdlib only. Tables by call class and token role, the replay, and the gate. Writes gate1.md and
-            gate1.json.
-generate and score resume: a rerun skips the states already written.
+  own       GPU (vLLM). The model's own next call after a context that ends in a forced empty thought (block,
+            C-none): one sample at the run's sampling, checked as T-think's own call is. Writes own_<context>.jsonl.
+  report    CPU, stdlib only. Tables by call class and token role, the replay, the gate, and the forced empty thought.
+            Writes gate1.md and gate1.json.
+generate, score and own resume: a rerun skips the states already written.
 """
 from __future__ import annotations
 
@@ -45,8 +47,9 @@ CAPS = {"copy_2nd": (99, 80), "copy_3rd_plus": (3, 80), "return_to_earlier": (4,
         "malformed": (99, 40), "after_miss": (3, 100), "after_bad": (2, 50), "after_error": (2, 40),
         "first": (1, 35), "routine": (2, 120)}
 CALL_ROLES = ("tool", "argname", "command", "path", "code", "value")   # the content of a call; struct and think are not
-CONTEXTS = ("S", "C-none", "T-think", "T-hint", "note", "dedup", "T-patch", "T-patch-on", "T-loc", "C-wrong")
+CONTEXTS = ("S", "C-none", "T-think", "T-hint", "note", "dedup", "block", "T-patch", "T-patch-on", "T-loc", "C-wrong")
 THINKING_ON = {"C-none", "T-think", "T-patch-on"}
+OWN = ("block", "C-none")   # the contexts own samples after: the empty thought forced with thinking off, and on
 PATCHED = {"T-patch": "patch", "T-patch-on": "patch", "T-loc": "loc", "C-wrong": "wrong"}
 # Gemma 4's chat-template tokens (the model's tokenizer_config.json names them all)
 SPECIAL = {"turn_open": "<|turn>", "turn_close": "<turn|>", "think": "<|think|>", "ch_open": "<|channel>",
@@ -870,6 +873,17 @@ def ended_with(o, stop: list[int]) -> list[int]:
     return ids
 
 
+def judge_call(v: Vocab, s: dict, call: list[int]) -> dict:
+    """A sampled call at a state: the student's call exactly, a stale repeat in that context, malformed."""
+    parsed = parse_call(v.dec(call))
+    span = call_span(v, call)
+    mine = v.dec(call[span[0]:span[1] + 1]) if span else ""
+    return {"call_text": mine, "has_call": parsed is not None, "same_as_student": bool(mine) and mine == s["call_text"],
+            "stale": parsed is not None and call_key(*parsed) in set(s["stale_keys"]),
+            "malformed": parsed is not None and malformed(*parsed),
+            "same_tool": parsed is not None and parsed[0] == s["fn"]}
+
+
 def cmd_generate(a) -> int:
     from vllm import SamplingParams
     from vllm.inputs import TokensPrompt
@@ -913,17 +927,59 @@ def cmd_generate(a) -> int:
             for (_, _, row), o in zip(second, outs2):
                 row["call"], row["call_finish"] = ended_with(o.outputs[0], stop2), o.outputs[0].finish_reason
         for s, row in zip(part, rows):
-            text = v.dec(row["call"])
-            parsed = parse_call(text)
-            span = call_span(v, row["call"])
-            mine = v.dec(row["call"][span[0]:span[1] + 1]) if span else ""
-            row.update({"thought_len": len(row["thought"]), "call_text": mine,
-                        "has_call": parsed is not None, "same_as_student": bool(mine) and mine == s["call_text"],
-                        "stale": parsed is not None and call_key(*parsed) in set(s["stale_keys"]),
-                        "malformed": parsed is not None and malformed(*parsed),
-                        "same_tool": parsed is not None and parsed[0] == s["fn"]})
+            row.update({"thought_len": len(row["thought"]), **judge_call(v, s, row["call"])})
         write_jsonl(out_path, rows, "a")
         print(f"  {k + len(part)}/{len(todo)} states, {time.time() - t0:.0f} s", flush=True)
+    return 0
+
+
+def cmd_own(a) -> int:
+    """The model's own call after each OWN context's prompt, where the context applies. The seed is the state's, as
+    for T-think's call, so block and C-none draw the same random numbers at a state."""
+    from vllm import SamplingParams
+    from vllm.inputs import TokensPrompt
+    v = vocab_for(a)
+    states, prompts = load_work(a.work)
+    bad = [c for c in a.contexts if c not in OWN]
+    if bad:
+        raise SystemExit(f"own samples after {', '.join(OWN)} only, not {bad}")
+    llm = None
+    for name in a.contexts:
+        out_path = a.work / f"own_{name}.jsonl"
+        done = {r["key"] for r in iter_jsonl(out_path)}
+        todo, skipped = [], Counter()
+        for s in sorted(states, key=lambda s: (s["run"], s["task"], s["i"])):   # neighbours share prefixes
+            if s["key"] in done:
+                continue
+            built = build_variant(v, name, s, prompts[s["key"]], None, None)
+            if built is None:
+                skipped["does not apply"] += 1
+                continue
+            if built[1] + a.call_tokens > a.max_len:
+                skipped["longer than --max-len"] += 1
+                continue
+            todo.append((s, built[0][:built[1]]))
+        print(f"own {name}: {len(todo)} to do, {len(done)} done, skipped {dict(skipped)}; T={a.temperature}",
+              flush=True)
+        if not todo:
+            continue
+        if llm is None:
+            llm = make_llm(a, prefix_caching=True)
+        t0 = time.time()
+        stop = [v.call_close]
+        for k in range(0, len(todo), a.chunk):
+            part = todo[k:k + a.chunk]
+            sps = [SamplingParams(n=1, temperature=a.temperature, top_p=a.top_p, top_k=a.top_k,
+                                  max_tokens=a.call_tokens, stop_token_ids=stop, seed=seed_of(s["key"]),
+                                  detokenize=False) for s, _ in part]
+            outs = llm.generate([TokensPrompt(prompt_token_ids=c) for _, c in part], sps, use_tqdm=False)
+            rows = []
+            for (s, _), o in zip(part, outs):
+                g = o.outputs[0]
+                call = ended_with(g, stop)
+                rows.append({"key": s["key"], "call": call, "finish": g.finish_reason, **judge_call(v, s, call)})
+            write_jsonl(out_path, rows, "a")
+            print(f"  {name}: {k + len(part)}/{len(todo)} states, {time.time() - t0:.0f} s", flush=True)
     return 0
 
 
@@ -932,7 +988,8 @@ def cmd_generate(a) -> int:
 def build_variant(v: Vocab, name: str, s: dict, pr: dict, gen: dict | None, priv: dict | None):
     """(full token sequence, index where the student's tail starts) of one context, or None where it doesn't apply.
     The tail is the student's completion without its own empty thought; thinking-off contexts keep that block where
-    the student wrote it, thinking-on ones put an empty thought (or T-think's) in its place."""
+    the student wrote it, thinking-on ones put an empty thought (or T-think's) in its place, and block forces one
+    where the student wrote none."""
     p, comp = pr["prompt_ids"], pr["completion_ids"]
     head, tail = comp[:s["tail_offset"]], comp[s["tail_offset"]:]
     if name == "S":
@@ -948,6 +1005,10 @@ def build_variant(v: Vocab, name: str, s: dict, pr: dict, gen: dict | None, priv
         if d is None:
             return None
         ctx = d[0] + head
+    elif name == "block":
+        if head or p[-len(v.empty_thought):] == v.empty_thought:
+            return None   # the student wrote its own, or the template prefilled one (after the task prompt): S itself
+        ctx = p + v.empty_thought
     elif name in PATCHED:
         field = PATCHED[name]
         if not priv or not priv.get(field):
@@ -1117,6 +1178,90 @@ def bootstrap_ratio(per_task: dict, reps: int, seed: int):
     return point, boot[int(0.025 * (len(boot) - 1))], boot[int(0.975 * (len(boot) - 1))]
 
 
+def kl_per_task(states: dict, rows: dict, keys, per_call: bool = False) -> dict:
+    """The gate's sums over the given states: task -> [failure KL, failure n, routine KL, routine n], over the call
+    tokens; with per_call, over calls instead, each at its largest token KL (a per-token mean favours long calls)."""
+    per_task = defaultdict(lambda: [0.0, 0, 0.0, 0])
+    for k in keys:
+        s = states[k]
+        kl = [x for role, x in zip(s["roles"], rows[k]["kl"]) if role in CALL_ROLES]
+        at = 0 if s["cls"] in STUCK else 2 if s["cls"] == "routine" else None
+        if at is None or not kl:
+            continue
+        kl = [max(kl)] if per_call else kl
+        per_task[s["task"]][at] += sum(kl)
+        per_task[s["task"]][at + 1] += len(kl)
+    return dict(per_task)
+
+
+def own_shares(rows: list[dict]) -> dict | None:
+    if not rows:
+        return None
+    d = {f: sum(r[f] for r in rows) / len(rows) for f in ("same_as_student", "stale", "malformed")}
+    return dict(d, no_call=sum(not r["has_call"] for r in rows) / len(rows), n=len(rows))
+
+
+def report_block(a, states: dict, scores: dict, gen: dict) -> tuple[list[str], dict]:
+    """Section 3: the empty thought forced with thinking off (block) and on (C-none), where block applies; then the
+    same states with thinking on and no thought (T-think where it went straight to the call)."""
+    own = {n: {r["key"]: r for r in iter_jsonl(a.work / f"own_{n}.jsonl") if r["key"] in states} for n in OWN}
+    forced = [k for k in scores["block"] if k in scores["S"] and k in scores["C-none"]]
+    pc = lambda n, k: pexp(scores[n][k]["logp_call_run"])
+    out = {"states": len(forced), "by_class": {}, "t_think_no_thought": {}, "kl": {}}
+    lines = ["## 3. The forced empty thought: thinking off and on", "",
+             "block is the recorded prompt (thinking off) with the empty thought <|channel>thought\\n<channel|> forced "
+             "where the student went straight to the call. Where the student wrote that block itself, or the prompt "
+             "ends with the template's own (after the task prompt), block is the recorded prompt, so it isn't scored "
+             "there. C-none forces the same block after the thinking-on prompt. p(call) at the run's sampling, as in "
+             "section 2, on the states block applies to. Own call: one sample after the context, with the state's seed "
+             "in both contexts; same / stale / malformed as for T-think's.", "",
+             "| class | states | of the class | S | block | C-none | block's own call: same / stale / malformed "
+             "| C-none's own call: same / stale / malformed |", "|---|---|---|---|---|---|---|---|"]
+    for cls in CLASSES:
+        n_cls = sum(1 for k, s in states.items() if s["cls"] == cls and k in scores["S"])
+        if not n_cls:
+            continue
+        keys = [k for k in forced if states[k]["cls"] == cls]
+        row = {"states": len(keys), "of_class": len(keys) / n_cls}
+        row.update({n: mean(pc(n, k) for k in keys) for n in ("S", "block", "C-none")})
+        cells = [fmt(row[n], 2) for n in ("S", "block", "C-none")]
+        for n in OWN:
+            d = row[f"own_{n}"] = own_shares([own[n][k] for k in keys if k in own[n]])
+            cells.append("-" if d is None else
+                         f"{d['same_as_student']:.0%} / {d['stale']:.0%} / {d['malformed']:.0%} ({d['n']})")
+        out["by_class"][cls] = row
+        lines.append(f"| {cls} | {len(keys)} | {row['of_class']:.0%} | " + " | ".join(cells) + " |")
+    if "T-think" in scores:
+        four = ("S", "block", "T-think", "C-none")
+        lines += ["", "The same, on the states where T-think also went straight to the call (with thinking on, no "
+                  "thought is the model's own choice there): thinking off or on, without or with the forced block.", "",
+                  "| class | states | off: S | off + block: block | on: T-think, no thought | on + block: C-none |",
+                  "|---|---|---|---|---|---|"]
+        for cls in CLASSES:
+            keys = [k for k in forced if states[k]["cls"] == cls and k in gen and not gen[k]["thought"]
+                    and k in scores["T-think"]]
+            if not keys:
+                continue
+            row = {"states": len(keys), **{n: mean(pc(n, k) for k in keys) for n in four}}
+            out["t_think_no_thought"][cls] = row
+            lines.append(f"| {cls} | {len(keys)} | " + " | ".join(fmt(row[n], 2) for n in four) + " |")
+    lines += ["", "The gate's KL on the states block applies to: failure classes against routine, with a 95% CI over "
+              "tasks, per call token as in the gate, and per call at its largest token KL.", ""]
+    for n in ("block", "C-none"):
+        out["kl"][n], cells = {}, []
+        for unit in ("per token", "per call"):
+            per_task = kl_per_task(states, scores[n], forced, per_call=unit == "per call")
+            fk = sum(x[0] for x in per_task.values()) / max(sum(x[1] for x in per_task.values()), 1)
+            rk = sum(x[2] for x in per_task.values()) / max(sum(x[3] for x in per_task.values()), 1)
+            point, lo, hi = bootstrap_ratio(per_task, a.reps, a.seed)
+            out["kl"][n][unit] = {"failure_kl": fk, "routine_kl": rk, "ratio": point, "ci": [lo, hi]}
+            ci = f" ({fmt(lo, 2)}-{fmt(hi, 2)})" if lo is not None else ""
+            cells.append(f"{unit}, failure {fmt(fk)} against routine {fmt(rk)}: ratio {fmt(point, 2)}{ci}")
+        lines.append(f"- {n}: " + "; ".join(cells))
+    lines.append("")
+    return lines, out
+
+
 def cmd_report(a) -> int:
     states = {s["key"]: s for s in iter_jsonl(a.work / "states.jsonl")}
     gen = {r["key"]: r for r in iter_jsonl(a.work / "gen.jsonl")}
@@ -1144,7 +1289,7 @@ def cmd_report(a) -> int:
               "| teacher | failure KL | routine KL | ratio (95% CI) | failure log-ratio | routine log-ratio | verdict |",
               "|---|---|---|---|---|---|---|"]
     for name, rows in scores.items():
-        if name == "S" or name in ("note", "dedup"):
+        if name == "S" or name in ("note", "dedup", "block"):   # block: section 3, on the states where it applies
             continue
         per_task = defaultdict(lambda: [0.0, 0, 0.0, 0])
         lr_f, lr_r = [], []
@@ -1248,6 +1393,11 @@ def cmd_report(a) -> int:
         lines += [f"T-think's thoughts: {len(tl)}, median {st.median(tl):.0f} tokens, "
                   f"{sum(x['truncated'] for x in gen.values())} cut at the budget, "
                   f"{sum(not x['thought'] for x in gen.values())} without a thought.", ""]
+
+    # 3. the forced empty thought: the block, or thinking on?
+    if "block" in scores and "C-none" in scores:
+        more, out["block"] = report_block(a, states, scores, gen)
+        lines += more
     (a.work / "gate1.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     (a.work / "gate1.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
@@ -1266,7 +1416,7 @@ def main() -> int:
                    help="thinking-on run dirs whose own prompts check the thinking-on edit (e.g. base_v30_l40s)")
     p.add_argument("--scale", type=float, default=1.0, help="multiply every class's total cap (0.1 for a quick try)")
     p.add_argument("--seed", type=int, default=0)
-    for name, chunk in (("generate", 8192), ("score", 2048)):
+    for name, chunk in (("generate", 8192), ("score", 2048), ("own", 8192)):
         p = sub.add_parser(name)
         p.add_argument("--max-len", type=int, default=32768)
         p.add_argument("--gpu-mem", type=float, default=0.85)
@@ -1279,8 +1429,12 @@ def main() -> int:
     sub.choices["generate"].add_argument("--call-tokens", type=int, default=1024, help="tokens for T-think's own call")
     sub.choices["generate"].add_argument("--chunk", type=int, default=128, help="states per batch written to gen.jsonl")
     sub.choices["score"].add_argument("--contexts", type=lambda s: [x for x in s.split(",") if x],
-                                      default=["S", "C-none", "T-think", "T-hint", "note", "dedup"])
+                                      default=["S", "C-none", "T-think", "T-hint", "note", "dedup", "block"])
     sub.choices["score"].add_argument("--batch", type=int, default=8, help="prompts per vLLM call (prompt logprobs are big)")
+    sub.choices["own"].add_argument("--contexts", type=lambda s: [x for x in s.split(",") if x], default=list(OWN))
+    sub.choices["own"].add_argument("--call-tokens", type=int, default=1024, help="tokens for the own call")
+    sub.choices["own"].add_argument("--chunk", type=int, default=128,
+                                    help="states per batch written to own_<context>.jsonl")
     p = sub.add_parser("report")
     p.add_argument("--reps", type=int, default=2000, help="bootstrap resamples of tasks")
     p.add_argument("--gate-ratio", type=float, default=2.0)
@@ -1295,7 +1449,8 @@ def main() -> int:
         p.add_argument("--top-k", type=int, default=64, help="vLLM's default from the model's generation_config.json")
     sub.choices["report"].add_argument("--topk", type=int, default=20)
     a = ap.parse_args()
-    return {"prep": cmd_prep, "generate": cmd_generate, "score": cmd_score, "report": cmd_report}[a.cmd](a)
+    cmds = {"prep": cmd_prep, "generate": cmd_generate, "score": cmd_score, "own": cmd_own, "report": cmd_report}
+    return cmds[a.cmd](a)
 
 
 if __name__ == "__main__":

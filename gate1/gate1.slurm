@@ -8,19 +8,21 @@
 # Gate 1 of the OPSD study: the steps of gate1/gate1.py, in one job (gate1/README.md).
 # gate1/submit_gate1.sh queues it with each step's resources, which this file leaves to the command line:
 # - prep and report: CPU, e.g. -p short -c 4 --mem=32G -t 01:00:00;
-# - generate and score: one A100 80 GB, e.g. -p gpu --gres=gpu:a100:1 --constraint=a100@80g -c 8 --mem=128G
+# - generate, score and own: one A100 80 GB, e.g. -p gpu --gres=gpu:a100:1 --constraint=a100@80g -c 8 --mem=128G
 #   -t 06:00:00. An L40S also works (-p sharing --gres=gpu:l40s:1), but those slots run the evals.
 #   Not an H200: its driver can't JIT vLLM's int4 Marlin kernels (the main track's baseline/loss_check.slurm).
-# Env: WORK (the work dir, required), STEPS (default "generate score"), RUNS (prep's run dirs, space-separated),
-# CONTEXTS (score's contexts, comma-separated), MAIN (the main-track checkout, for its gpu_guard.sh), and more
-# gate1.py arguments per step: PREP_ARGS, GEN_ARGS, SCORE_ARGS, REPORT_ARGS (e.g. GEN_ARGS="--budget 1024").
+# Env: WORK (the work dir, required), STEPS (default "generate score own"), RUNS (prep's run dirs, space-separated),
+# CONTEXTS (score's contexts, comma-separated), OWN_CONTEXTS (own's), MAIN (the main-track checkout, for its
+# gpu_guard.sh), and more gate1.py arguments per step: PREP_ARGS, GEN_ARGS, SCORE_ARGS, OWN_ARGS, REPORT_ARGS
+# (e.g. GEN_ARGS="--budget 1024").
 # Submit from this repo's root, where logs/ is.
 
 ROOT=/scratch/$USER/gemma4
 MAIN=${MAIN:-$HOME/Gemma4_kaggle_repo}
 WORK=${WORK:?set WORK to the work dir}
-STEPS=${STEPS:-generate score}
-CONTEXTS=${CONTEXTS:-S,C-none,T-think,T-hint,note,dedup}
+STEPS=${STEPS:-generate score own}
+CONTEXTS=${CONTEXTS:-S,C-none,T-think,T-hint,note,dedup,block}
+OWN_CONTEXTS=${OWN_CONTEXTS:-block,C-none}
 MODEL=$ROOT/models/gemma-4-31b-it-qat-w4a16-ct
 PY=$ROOT/venvs/vllm_host/bin/python            # vLLM 0.19 and transformers 5, as the evals serve the model
 PRELOAD=$ROOT/envs/py312/lib/libstdc++.so.6    # conda sqlite3 vs system libstdc++, as in the main track's jobs
@@ -39,7 +41,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 echo "job=$SLURM_JOB_ID restart=${SLURM_RESTART_COUNT:-0} node=$(hostname) git=$(git rev-parse --short HEAD 2>/dev/null) steps=$STEPS work=$WORK start=$(date -Is)"
 [ -s "$MODEL/model.safetensors" ] || { echo "FAIL: the model is missing: $MODEL (the main track's slurm/fetch_model.slurm)"; exit 1; }
 
-if has generate || has score; then
+if has generate || has score || has own; then
   GPU=$(nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader | head -1)
   echo "gpu: $GPU"
   if [[ $GPU == *H200* || $GPU == *H100* ]]; then
@@ -61,6 +63,7 @@ run() {   # run <step> <args...>
     --on-runs ${ON_RUNS:-$ROOT/results/base_v30_l40s} $PREP_ARGS; fi
   if has generate; then run generate --work "$WORK" --model "$MODEL" $GEN_ARGS; fi
   if has score; then run score --work "$WORK" --model "$MODEL" --contexts "$CONTEXTS" $SCORE_ARGS; fi
+  if has own; then run own --work "$WORK" --model "$MODEL" --contexts "$OWN_CONTEXTS" $OWN_ARGS; fi
   if has report; then run report --work "$WORK" $REPORT_ARGS; fi
 }
 echo "end=$(date -Is)"

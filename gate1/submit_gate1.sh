@@ -6,18 +6,20 @@
 # The chain, each job waiting for the one before:
 #   1. prep   (CPU, short partition, ~15 min): states, prompts, and the checks of the prompt edits against the model's
 #             chat template. A failed check stops the chain. Its prep.md is worth a look before the GPU hours.
-#   2. core   (one A100 80 GB, ~3-4 h): generate (T-think's thoughts and its own calls), then score the contexts
-#             S C-none T-think T-hint note dedup.
+#   2. core   (one A100 80 GB, ~4-5 h): generate (T-think's thoughts and its own calls), score the contexts
+#             S C-none T-think T-hint note dedup block, then own (the own calls after block and C-none).
 #   3. patch  (one A100, ~2.5 h, only with PATCH=1): score the patched teachers T-patch T-patch-on T-loc C-wrong.
 #   4. report (CPU, minutes): gate1.md and gate1.json, once the jobs before it have ended either way.
 # The work dir is /scratch/$USER/gemma4/paper/gate1/$NAME. A rerun with the same NAME resumes: generate and score skip
 # what is already written, e.g. after a job hit its time limit: STEPS="core report" GO=1 bash gate1/submit_gate1.sh.
+# The same resume adds what a work dir from before 2026-10-11 lacks (block and own), in about 1 h.
 # Env:
 #   NAME     work dir name (default gate1_<first run>)
 #   STEPS    any of "prep core patch report" (default: prep core report, and patch with PATCH=1)
 #   PATCH=1  add the patched teachers (they read the gold patches from /scratch/$USER/gemma4/data/tasks.jsonl)
 #   CORE_TIME (06:00:00), PATCH_TIME (05:00:00), GPU (a100), PARTITION (gpu), CONSTRAINT (a100@80g; empty for none)
-#   PREP_ARGS, GEN_ARGS, SCORE_ARGS, REPORT_ARGS: more gate1.py arguments, e.g. PREP_ARGS="--scale 0.1" for a try
+#   PREP_ARGS, GEN_ARGS, SCORE_ARGS, OWN_ARGS, REPORT_ARGS: more gate1.py arguments, e.g. PREP_ARGS="--scale 0.1"
+#            for a try
 #   AFTER=<job id>: start the chain once that job has ended, e.g. step 3's driver, to score its run as well
 #   FORCE=1: queue even though gate1 jobs of ours are queued or running (they would write the same work dir)
 set -euo pipefail
@@ -91,8 +93,9 @@ if has prep; then
   mode=afterok
 fi
 if has core; then
-  queue core "$mode" "${COMMON[@]}" STEPS="generate score" CONTEXTS=S,C-none,T-think,T-hint,note,dedup \
-    GEN_ARGS="${GEN_ARGS:-}" SCORE_ARGS="${SCORE_ARGS:-}" -- "${GPU_RES[@]}" -t "${CORE_TIME:-06:00:00}"
+  queue core "$mode" "${COMMON[@]}" STEPS="generate score own" CONTEXTS=S,C-none,T-think,T-hint,note,dedup,block \
+    OWN_CONTEXTS=block,C-none GEN_ARGS="${GEN_ARGS:-}" SCORE_ARGS="${SCORE_ARGS:-}" OWN_ARGS="${OWN_ARGS:-}" -- \
+    "${GPU_RES[@]}" -t "${CORE_TIME:-06:00:00}"
   mode=afterany   # a core job cut by its time limit leaves resumable files; patch and report go on
 fi
 if has patch; then
