@@ -94,18 +94,18 @@ We ran [trigger_replay.py](trigger_replay.py) over the 70 dev tasks of three v28
 
 ## Novelty check (2026 literature)
 
-Read on arXiv on 2026-10-08: abstracts only, plus Second Thought's results table.
+Read on arXiv on 2026-10-08: abstracts only, plus Second Thought's results table. TAB's, Cognitive Companion's and Real-Time Detection and Repair's rows were corrected from their full texts on 2026-10-12 ([../loops/literature.md](../loops/literature.md#41-the-works-we-already-cite-checked)).
 
 | Work | What it does | Overlap with us |
 |---|---|---|
 | SwiftSage [2305.17390](https://arxiv.org/abs/2305.17390) (NeurIPS 2023) | a heuristic hands control from a small fast model to a slow LLM planner; ScienceWorld | the idea of a mechanical switch from fast to slow |
 | CogRouter [2602.12662](https://arxiv.org/abs/2602.12662) (Feb) | 4 levels of reasoning depth chosen per step; SFT then RL; Qwen2.5-7B; ALFWorld, ScienceWorld; 62% fewer tokens | per step, trained, no SWE |
 | Ares [2603.07915](https://arxiv.org/abs/2603.07915) (Mar) | a router picks each step's reasoning effort, trained on labels of the least effort that still succeeds; TAU-Bench, BrowseComp-Plus, WebArena; up to 52.7% fewer reasoning tokens | **closest:** per-step effort for agents, decided before the step; trained; no SWE; no clock |
-| TAB [2604.05164](https://arxiv.org/abs/2604.05164) (Apr, v3 Aug) | per-turn thinking budgets; a policy trained with GRPO under a per-problem token limit; up to 35% fewer tokens and 30% less latency | per turn, trained |
-| Cognitive Companion [2604.13759](https://arxiv.org/abs/2604.13759) (Apr) | a parallel monitor for loops and drift; 52–62% less repetition on loop-prone tasks; Gemma 4 E4B | loop detection on Gemma 4; no thinking switch; no SWE |
+| TAB [2604.05164](https://arxiv.org/abs/2604.05164) (Apr, v3 Aug) | per-turn thinking budgets; a policy trained with GRPO under a per-problem token limit; up to 35% fewer tokens and 30% less latency on multi-turn math, and up to 20% fewer tokens and 15% less latency on agent benchmarks (BFCL v4, Tau-Bench, Terminal-Bench) | per turn, trained |
+| Cognitive Companion [2604.13759](https://arxiv.org/abs/2604.13759) (Apr) | a parallel monitor for loops and drift; Gemma 4 E4B on free-text reasoning, no tools reported, T = 1.0. The abstract's "52–62%" less repetition rests on one loop-prone prompt over two sessions (−52%); the authors call it "a feasibility study" | loop detection on Gemma 4; no thinking switch; no SWE |
 | HRBench [2605.28398](https://arxiv.org/abs/2605.28398) (May) | a benchmark of think/no-think switching strategies; 6 models; single-turn math, science and code | switching, but single-turn |
 | ALAR [2606.02871](https://arxiv.org/abs/2606.02871) (Jun) | latent reasoning on routine turns, explicit reasoning on hard ones; trained; search and tool use | per turn, trained, no SWE |
-| Real-Time Detection and Repair [2608.02464](https://arxiv.org/abs/2608.02464) (Aug) | telemetry monitors and deterministic checks; a flagged run is rolled back and re-run; success 52% → 73% | mechanical detection; the repair is a re-run, not thinking |
+| Real-Time Detection and Repair [2608.02464](https://arxiv.org/abs/2608.02464) (Aug) | telemetry monitors and deterministic checks; a flagged run is rolled back and re-run, told which check failed; success 52% → 73%, flagged by checks on totals, required calls and tool contracts. Its loops are injected, none occurred on their own; they "escalate rather than recover", and a circuit breaker only ends them sooner | mechanical detection; the repair is a re-run, not thinking |
 | Second Thought [2608.13667](https://arxiv.org/abs/2608.13667) (Aug) | training-free: 4 reasoning branches decode while each action runs, and are merged into the observation; SWE-Bench Pro, Terminal-Bench 2.1, τ3-bench; API models | **the asynchronous version.** On SWE-Bench Pro, Pass@1 moved −0.7 to +3.3 points, none significant; turns fell 6–11%. |
 
 - **Taken:**

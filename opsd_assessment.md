@@ -183,13 +183,14 @@ Read on arXiv on 2026-10-08, abstracts only unless noted. "Overlap" means overla
 | State-Matched Routing [2608.05219](https://arxiv.org/abs/2608.05219) | Aug 5 | a reference trajectory misguides states the student reached on its own; ALFWorld, WebShop | medium: why T-patch may fail |
 | AgentOPSD [2608.05987](https://arxiv.org/abs/2608.05987) | Aug 6 | turn-level credit from teacher-student log-prob gaps; ALFWorld, WebShop, Search-QA; Qwen2.5 3B/7B | low |
 | Rethinking Privileged Information [2608.18271](https://arxiv.org/abs/2608.18271) | Aug 18 | the correct reference isn't consistently better; another problem's solution can win | the C-wrong control |
+| STRIDE, "Know When to Stop, Where to Restart" [2609.14636](https://arxiv.org/abs/2609.14636) | Sep 13 | speeds up multi-turn agentic OPD: it stops a rollout once the teacher's cumulative log-probability falls below a threshold, and restarts at the weakest correct turn; τ²-bench retail matches full distillation at 3.73× the speed (full text, read 2026-10-12) | low: training speed; nothing on agent loops or escapes |
 | Repulsive and Attractive Teachers [2609.21561](https://arxiv.org/abs/2609.21561) | Sep 18 | attraction shortens and sharpens; repulsion can switch a model into thinking mode | design: masks, monitoring |
 | **PSP** [2609.29051](https://arxiv.org/abs/2609.29051) | Sep 24 | OPSD on thinking-off agents (AppWorld, SWE-bench Verified; Qwen3-4B/8B) falls below base. Its privileged information is an analyzer's per-task guidance; putting it in the sampler with GRPO instead wins (results table read) | **high: tests the README's kind of teacher** |
 | **SeOPD** [2609.33181](https://arxiv.org/abs/2609.33181) | Sep 27 (v2 Oct 7) | the model's own thinking-mode chain of thought as privileged information for its non-thinking responses | **high in idea**; no agents or tools mentioned |
 | **ThinkOPD** [2609.37044](https://arxiv.org/abs/2609.37044) | Sep 29 | a think-mode teacher for a non-thinking student, deployed without thinking; math and code | **high in idea**, single-turn |
 | PivotOPD [2609.40285](https://arxiv.org/abs/2609.40285) | Sep 30 | OPD at pivotal mistakes, using a teacher's gold and recovery actions; SWE-bench Verified +3.2 (Nemotron-3.5) | medium: multi-turn SWE OPD, external teacher |
 
-Seen in search results but not opened: Open-SWE-Traces (2606.16038), SOD (2605.07725), Thinking Collapse in OPSD (2607.10805), Privileged Solutions or Context-Induced Teacher Behavior? (2608.09228), DualOPSD (2608.26019), What Does Privileged Information Add to OPSD? (2609.20612), DART-SD (2608.18524), Know When to Stop, Where to Restart (2609.14636). Read their abstracts before writing the related work.
+Seen in search results but not opened: Open-SWE-Traces (2606.16038), SOD (2605.07725), Thinking Collapse in OPSD (2607.10805), Privileged Solutions or Context-Induced Teacher Behavior? (2608.09228), DualOPSD (2608.26019), What Does Privileged Information Add to OPSD? (2609.20612), DART-SD (2608.18524). Read their abstracts before writing the related work.
 
 **Novelty verdict**
 - **Taken:**

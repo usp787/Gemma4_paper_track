@@ -48,13 +48,15 @@ How the sources were read is in [Sources](#7-sources). In the tables, ✓ marks 
 8. **Generality needs a second model.**
    - Loops are reported for Qwen3, Qwen2.5-Coder, GLM, Gemini and every Gemma 4 size.
    - The cheapest second model is Gemma 4 12B or E4B through swegemma v30. E2B and E4B write no empty thought with thinking off, which tests (b) for free.
-9. **Six of our citations need correcting, and two more need a narrower scope** (Sinha; Real-Time Detection and Repair; [§4.1](#41-the-works-we-already-cite-checked)):
+9. **Eight of our citations were wrong or too broad, and were fixed on 2026-10-12** in [../README.md](../README.md), [../adaptive_inference/README.md](../adaptive_inference/README.md), [../opsd_assessment.md](../opsd_assessment.md) and [../gate1/README.md](../gate1/README.md) ([§4.1](#41-the-works-we-already-cite-checked)). What was wrong:
    - Cognitive Companion's "52–62%" is −52% on one prompt;
    - our PSP quote is wrong;
    - "The Danger of Overthinking" does not show that more reasoning hurts;
    - NetConfArena's "invalid actions" are rejected ones;
    - TAB saves 20% and 15%, not 35% and 30%, on agent tasks;
-   - 2609.14636 is about something else.
+   - 2609.14636 is about something else;
+   - Sinha's "thinking removes" self-conditioning holds only for Qwen3's thinking models, on a synthetic task;
+   - Real-Time Detection and Repair's loops are injected, and its gain doesn't come from repairing them.
 10. **The biggest risk is being scooped.** Other entrants hold the same observations, an open HF PR targets the template, and the host is "investigating" it (744844, 2026-10-12). Submit early and cite the threads.
 
 ## 2. Answers to the five questions
@@ -324,22 +326,22 @@ All of them exist, and every ID is right.
 |---|---|---|---|
 | Holtzman et al., ICLR 2020, 1904.09751 (v2 2020-02-14) | yes | Cite Fig. 4: "The probability of a repeated phrase increases with each repetition, creating a positive feedback loop." "Self-reinforcement" is Xu's word. | [../gate1/README.md](../gate1/README.md), "Prior work agrees" |
 | Xu et al., NeurIPS 2022, 2206.02369 (v2 2022-10-09) | yes | Add the DOI (§5). The setting is a ~750M Transformer with greedy decoding. | same |
-| Sinha et al., ICLR 2026, 2509.09677 (v3 2026-03-13) | **partly** | "Thinking removes that" is shown only for Qwen3 thinking models, on a synthetic execution task, with earlier thoughts stripped. CoT prompting doesn't help. | [../gate1/README.md](../gate1/README.md) line 71 |
+| Sinha et al., ICLR 2026, 2509.09677 (v3 2026-03-13) | **partly** | "Thinking removes that" is shown only for Qwen3 thinking models, on a synthetic execution task, with earlier thoughts stripped. CoT prompting doesn't help. | [../gate1/README.md](../gate1/README.md) line 71 (fixed 2026-10-12) |
 | Huang et al., ICLR 2024, 2310.01798 | yes | – | same, line 72 |
 | Kamoi et al., TACL 2024, 2406.01297 | yes | Add the DOI 10.1162/tacl_a_00713. | same |
-| Cognitive Companion, 2604.13759 (v1 only) | **no** | "52–62%" appears only in the abstract. The body shows −52% mean lexical repetition on one prompt over two sessions, with no tools, at T = 1.0; the paper calls itself "a feasibility study". | [../adaptive_inference/README.md](../adaptive_inference/README.md) line 105 |
-| Real-Time Detection and Repair, 2608.02464 | **partly** | Its loops are injected; no organic loops are reported. They "escalate rather than recover", and the 52% → 73% comes from deterministic checks. | same, line 108 |
+| Cognitive Companion, 2604.13759 (v1 only) | **no** | "52–62%" appears only in the abstract. The body shows −52% mean lexical repetition on one prompt over two sessions, with no tools, at T = 1.0; the paper calls itself "a feasibility study". | [../adaptive_inference/README.md](../adaptive_inference/README.md) line 105 (fixed 2026-10-12) |
+| Real-Time Detection and Repair, 2608.02464 | **partly** | Its loops are injected; no organic loops are reported. They "escalate rather than recover", and the 52% → 73% comes from deterministic checks. | same, line 108 (fixed 2026-10-12) |
 | Second Thought, 2608.13667 | yes | – | same, line 109 |
 | Demystifying Hybrid Thinking, 2510.12680 (v2 2026-10-04) | yes | Single-turn only. | same, line 120 |
-| The Danger of Overthinking, 2502.08235 | **partly** | Not "more reasoning can hurt": reasoning models that replace interaction with internal simulation resolve fewer issues. Within o1, more effort helped (29.1% vs 21.0%). Its judge rubric labels "Stuck in a loop is good". The three mode names are right. | [../README.md](../README.md) line 246 |
-| NetConfArena, 2608.23179 | **partly** | Read "invalid" as "rejected" actions (0.455 → 0.317 for 8B; 0.090 → 0.139 for 32B). Unparseable actions rose with thinking for every model. | same line |
+| The Danger of Overthinking, 2502.08235 | **partly** | Not "more reasoning can hurt": reasoning models that replace interaction with internal simulation resolve fewer issues. Within o1, more effort helped (29.1% vs 21.0%). Its judge rubric labels "Stuck in a loop is good". The three mode names are right. | [../README.md](../README.md) line 246 (fixed 2026-10-12) |
+| NetConfArena, 2608.23179 | **partly** | Read "invalid" as "rejected" actions (0.455 → 0.317 for 8B; 0.090 → 0.139 for 32B). Unparseable actions rose with thinking for every model. | same line (fixed 2026-10-12) |
 | Ares 2603.07915; ALAR 2606.02871; HRBench 2605.28398 | yes | ALAR's tool use is single-turn BFCL. | adaptive_inference README |
 | CogRouter 2602.12662 | yes | The 62% saving is relative to GRPO. | same, line 102 |
-| TAB 2604.05164 (v3 2026-08-08) | **partly** | 35% and 30% are measured on plan-and-execute math. On agent benchmarks: "up to 20%" of tokens and 15% of latency. | same, line 104 |
+| TAB 2604.05164 (v3 2026-08-08) | **partly** | 35% and 30% are measured on plan-and-execute math. On agent benchmarks: "up to 20%" of tokens and 15% of latency. | same, line 104 (fixed 2026-10-12) |
 | SwiftSage 2305.17390, NeurIPS 2023 | yes | Its triggers include "Stuck" (5 zero-reward steps) and invalid actions. | same, line 101 |
-| "Know When to Stop, Where to Restart", 2609.14636 | – | It is STRIDE, a speed-up for multi-turn OPD training. Nothing about loops or escapes. | [../opsd_assessment.md](../opsd_assessment.md) line 192 |
+| "Know When to Stop, Where to Restart", 2609.14636 | – | It is STRIDE, a speed-up for multi-turn OPD training. Nothing about loops or escapes. | [../opsd_assessment.md](../opsd_assessment.md) §1.5: moved from "not opened" into the table (fixed 2026-10-12) |
 | OPSD 2601.18734 (v3 2026-03-20) | yes | Its teacher sees a "reference solution". | opsd_assessment §1.5 |
-| PSP 2609.29051 | **quote wrong** | The words are "act with confidence but without the information behind it". The SWE-bench Verified table matches (2.40 vs 3.56; 2.88 vs 4.72). | [../README.md](../README.md) line 289 |
+| PSP 2609.29051 | **quote wrong** | The words are "act with confidence but without the information behind it". The SWE-bench Verified table matches (2.40 vs 3.56; 2.88 vs 4.72). | [../README.md](../README.md) line 289 (fixed 2026-10-12) |
 | SeOPD 2609.33181 (v2 2026-10-07); ThinkOPD 2609.37044 (v2 2026-09-30); HERO 2606.11559; SDPO 2601.20802 (v2 2026-02-16); Tool-Call Drift 2607.07050 (v6 2026-09-05) | yes | ThinkOPD's "no-think" means "without the teacher's trace", not the template switch. Tool-Call Drift is multi-teacher OPD. | opsd_assessment §1.5 |
 
 ### 4.2 All works, by theme

@@ -243,7 +243,7 @@ Any paper in these areas has to cite this work and go beyond it.
   - We'd give up tooling that already works.
 - **A. Thinking-budget study:**
   - We found no study that varies the thinking budget of open models on SWE tasks while counting malformed and repeated calls.
-  - The nearest evidence is mixed. In [NetConfArena](https://arxiv.org/pdf/2608.23179), thinking raised invalid actions for Qwen3-32B but cut them for Qwen3-8B. ["The Danger of Overthinking"](https://arxiv.org/pdf/2502.08235) found that more reasoning can hurt agent tasks.
+  - The nearest evidence is mixed. In [NetConfArena](https://arxiv.org/pdf/2608.23179), thinking raised the share of actions the environment rejected for Qwen3-32B (0.090 → 0.139) but cut it for Qwen3-8B (0.455 → 0.317), and it raised unparseable actions for every model. ["The Danger of Overthinking"](https://arxiv.org/pdf/2502.08235) found that reasoning models resolve fewer issues the more they replace interaction with internal simulation. Yet more reasoning effort helped o1 (29.1% vs 21.0%).
   - It becomes OPSD's motivation and baselines, and the fallback paper.
 - **C. DSpark** ([arXiv 2607.05147](https://arxiv.org/abs/2607.05147); our copy is [dspark.pdf](dspark.pdf)):
   - **Main track:** it can't be used there. The harness launches vLLM with its own flags, and a drafter is a second model.
@@ -286,7 +286,7 @@ Any paper in these areas has to cite this work and go beyond it.
 
 This area is crowded with preprints from June–September 2026, and plain OPSD has known failure modes in multi-turn agents:
 
-- **[PSP (2609.29051)](https://arxiv.org/abs/2609.29051v1):** OPSD students "act confidently without the knowledge behind that confidence". PSP reports gains on SWE-bench Verified by moving the hint into the sampler.
+- **[PSP (2609.29051)](https://arxiv.org/abs/2609.29051v1):** OPSD "teaches the student to act with confidence but without the information behind it". PSP reports gains on SWE-bench Verified by moving the hint into the sampler.
   - Its SWE-bench Verified table runs every agent with thinking off. Plain OPSD fell *below the untrained base*: 2.40 vs 3.56 for Qwen3-4B, and 2.88 vs 4.72 for Qwen3-8B.
   - Its privileged information was an analyzer's per-task guidance. A gold patch gives the teacher even more that the student lacks.
   - [opsd_assessment.md](opsd_assessment.md) therefore proposes the model's own thinking as the teacher, and keeps the gold-patch teacher planned below as one arm of the comparison.

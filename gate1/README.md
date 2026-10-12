@@ -68,7 +68,7 @@ From the v30 traces, by `trigger_replay.py`'s rules. Each arm has one run.
   - Loops are where thinking-off fails visibly, and where its behaviour differs most from thinking on.
 - **Prior work agrees.**
   - Repetition reinforces itself (Holtzman et al., ICLR 2020; Xu et al., NeurIPS 2022).
-  - Models err more once their own errors are in context, and thinking removes that (Sinha et al., ICLR 2026).
+  - Models err more once their own errors are in context (Sinha et al., ICLR 2026). On their synthetic, tool-free execution task, Qwen3's thinking models no longer did, perhaps because earlier thoughts are dropped from the history. Chain-of-thought prompting didn't stop it.
   - Prompts asking the model to check itself don't help without outside feedback (Huang et al., ICLR 2024; Kamoi et al., TACL 2024).
 
 ## What it measures
