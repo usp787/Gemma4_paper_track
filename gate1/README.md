@@ -32,6 +32,7 @@ By default it scores `off_args`'s first v30 run, `baseline_nothink_args_v30_zip`
   - C-none's ratio is 0.96 per token (0.34–4.36), but 3.77 per call, each call at its largest token KL (1.61–12.68).
   - Long routine edits with low KL dominate the per-token mean.
 - **Next: the context `block`** forces the same empty thought with thinking off, to test whether the block alone breaks the copy. The step `own` samples what the model does there instead. One resume of the same work dir runs both ([Commands](#commands)).
+- **Then (2026-10-12): the forced thought, T-open.** It is T-think with the thought already open, which can't close before 32 tokens: does a real thought break the copy where the model wouldn't think on its own? On the looping states, T-think's own calls split by its choice: where it skipped the thought (114 states), 89% were stale; where it thought (99), 62% escaped. The step `open` runs it on this work dir, and the report gains section 4. The why and how are in [../loops/README.md](../loops/README.md), the loop study this belongs to now.
 
 ## Why these classes: the stuck loops of `off_args`
 
@@ -102,6 +103,7 @@ About 650 states on one run. The picks spread over tasks round-robin, with a fix
 | C-none | the thinking-on template (`<|think|>` in the system turn), then an empty thought, forced | planned as the template's effect alone; the first run found the forced block does the work |
 | block | the recorded prompt (thinking off), then the same empty thought, forced where the student went straight to the call. Where it wrote the block itself, or the prompt ends with the template's own (the first call), block would be S, so it isn't scored there | C-none without the thinking-on template: is it the block? Also a prefill a controller could make |
 | T-think | the thinking-on template, then a thought the same weights write there (at most 512 tokens, T=0.2) | **the proposed teacher**, and the controller's premise |
+| T-open | as T-think, but the thought is already open (`<|channel>thought\n`) and can't close before 32 tokens (vLLM's `min_tokens`) | a real thought at every state, without T-think's choice of where to think (step `open`, report section 4) |
 | T-hint | the recorded prompt plus a hindsight note on stale and malformed calls: what the call repeats and what that returned, or the right argument names | the hindsight teacher (HERO/SDPO idea) |
 | note | the recorded prompt plus what a controller could say before the call: "printed nothing" after a miss, "identical to the one before it" after a repeat | a controller that injects text instead of thinking (OpenHands' and Gemini CLI's loop nudges), local only |
 | dedup | the recorded prompt without the earlier copies of its last call | self-conditioning: is it the copies in context? |
@@ -152,7 +154,10 @@ GO=1 PATCH=1 bash gate1/submit_gate1.sh     # the same, plus the patched teacher
 GO=1 PREP_ARGS="--scale 0.1" NAME=gate1_try bash gate1/submit_gate1.sh   # a quick try: about 65 states
 STEPS="core report" CORE_TIME=02:00:00 bash gate1/submit_gate1.sh   # dry run of the resume below
 GO=1 STEPS="core report" CORE_TIME=02:00:00 bash gate1/submit_gate1.sh   # adds block and own to the first run's work dir
+GO=1 STEPS="open report" bash gate1/submit_gate1.sh   # adds the forced thought, T-open, to the first run's work dir
 ```
+
+- **The forced thought** (2026-10-12) needs only the first run's work dir. Its job runs `generate --context T-open`, then `score` with S and T-open. It writes `gen_T-open.jsonl` and `score_T-open.jsonl`, and the report adds T-open to the gate table and writes section 4. `OPEN_ARGS="--min-thought 64"` changes the minimum.
 
 - **The resume of the first run's work dir** (2026-10-11): generate, the other contexts' scores and prep are all done, so core only scores block (292 states) and runs `own` (292 + 581 calls), then the report rewrites `gate1.md` with section 3. Sections 1 and 2 come out unchanged, apart from the "Scored:" line.
 - **What the jobs do:**
@@ -183,6 +188,7 @@ All estimates are for about 650 states of about 10k prompt tokens each.
 | core: score S, C-none, T-think, T-hint, note, dedup (~2,600 requests) | A100 | ~2–3 h. Prompt logprobs re-prefill every prompt, so this is about 27M prompt tokens at an assumed ~3k tok/s |
 | core: score block, then own (~290 + ~870 requests) | A100 | ~1 h (estimate): block at the first run's ~4.4 s per state, own at about T-think's 2.2 s per state or less, since it writes no thought |
 | patch: score 4 patched teachers (~2,600 requests) | A100 | ~2–3 h |
+| open: T-open's thoughts and calls, then score T-open (581 + 581 requests) | A100 | ~1.3 h (estimate): a thought at every state, then ~6M prompt tokens at the first run's ~2,000 tok/s |
 
 - In total, about 6–8 A100-hours, inside the plan's ~10, and no L40S time.
 - The score step prints its measured prompt tokens per second. On the first run it was ~2,000 tok/s, and the core job took 3 h 16 min.
@@ -191,6 +197,7 @@ All estimates are for about 650 states of about 10k prompt tokens each.
 
 - **One step only.** The replay scores the next call; it can't show what the agent would do after it. That is `trigger_replay.py`'s limit too: a controller run measures the rest.
 - **One sample.** T-think's own call and the own calls are one sample per state; class-level rates rest on ~30–200 states each.
+- **Seeds shared within a task (the first run).** Until 2026-10-12 the seed kept only 4 bytes of the state's key, so the first run's 581 states had 75 seeds, about two per task. Its T-think and own samples share random numbers within a task: their rates aren't biased, but the states are less independent than the counts suggest. Since then each state has its own seed, T-open's included; rows already written keep theirs.
 - **Real-model tests.** The first run's prep passed every check with the real tokenizer and template. block and own are tested on the real tokenizer and the first run's prompts with a fake vLLM, not yet on a GPU.
 - **The KL is a lower bound.** It is over the teacher's top 20 tokens only, so it understates. The probabilities at T=1 with top_p slightly overstate the kept tokens' share.
 - **The `first` class:** the off prompt already ends with the prefilled empty thought, which the thinking-on edit removes.

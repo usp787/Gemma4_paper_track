@@ -13,8 +13,10 @@
 #   Not an H200: its driver can't JIT vLLM's int4 Marlin kernels (the main track's baseline/loss_check.slurm).
 # Env: WORK (the work dir, required), STEPS (default "generate score own"), RUNS (prep's run dirs, space-separated),
 # CONTEXTS (score's contexts, comma-separated), OWN_CONTEXTS (own's), MAIN (the main-track checkout, for its
-# gpu_guard.sh), and more gate1.py arguments per step: PREP_ARGS, GEN_ARGS, SCORE_ARGS, OWN_ARGS, REPORT_ARGS
-# (e.g. GEN_ARGS="--budget 1024").
+# gpu_guard.sh), and more gate1.py arguments per step: PREP_ARGS, GEN_ARGS, SCORE_ARGS, OWN_ARGS, OPEN_ARGS,
+# REPORT_ARGS (e.g. GEN_ARGS="--budget 1024").
+# The step open is the forced thought (T-open, report section 4): generate --context T-open, then score S,T-open.
+# OPEN_ARGS go to its generate, e.g. OPEN_ARGS="--min-thought 64".
 # Submit from this repo's root, where logs/ is.
 
 ROOT=/scratch/$USER/gemma4
@@ -41,7 +43,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 echo "job=$SLURM_JOB_ID restart=${SLURM_RESTART_COUNT:-0} node=$(hostname) git=$(git rev-parse --short HEAD 2>/dev/null) steps=$STEPS work=$WORK start=$(date -Is)"
 [ -s "$MODEL/model.safetensors" ] || { echo "FAIL: the model is missing: $MODEL (the main track's slurm/fetch_model.slurm)"; exit 1; }
 
-if has generate || has score || has own; then
+if has generate || has score || has own || has open; then
   GPU=$(nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader | head -1)
   echo "gpu: $GPU"
   if [[ $GPU == *H200* || $GPU == *H100* ]]; then
@@ -64,6 +66,10 @@ run() {   # run <step> <args...>
   if has generate; then run generate --work "$WORK" --model "$MODEL" $GEN_ARGS; fi
   if has score; then run score --work "$WORK" --model "$MODEL" --contexts "$CONTEXTS" $SCORE_ARGS; fi
   if has own; then run own --work "$WORK" --model "$MODEL" --contexts "$OWN_CONTEXTS" $OWN_ARGS; fi
+  if has open; then
+    run generate --work "$WORK" --model "$MODEL" --context T-open $OPEN_ARGS
+    run score --work "$WORK" --model "$MODEL" --contexts S,T-open $SCORE_ARGS
+  fi
   if has report; then run report --work "$WORK" $REPORT_ARGS; fi
 }
 echo "end=$(date -Is)"

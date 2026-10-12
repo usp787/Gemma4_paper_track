@@ -11,14 +11,16 @@ Subcommands, in this order (gate1.slurm runs them, submit_gate1.sh queues the jo
             states to score, and checks the token-level prompt edits against the model's own chat template.
             Writes states.jsonl, prompts.jsonl, priv.jsonl (with --data), prep.md and prep.json.
   generate  GPU (vLLM). T-think at every picked state: the same weights with thinking on write a thought of at most
-            --budget tokens, then their own next call. Writes gen.jsonl.
+            --budget tokens, then their own next call. Writes gen.jsonl. With --context T-open, the thought is forced
+            open instead: the thought channel is prefilled and can't close before --min-thought tokens, so the model
+            thinks at every state, not only where it chooses to. Writes gen_T-open.jsonl.
   score     GPU (vLLM). Prompt logprobs of the student's own completion under each context, S (the student itself)
             first. Per token: the log-ratio and the top-k forward KL against S. Per call: the probability of the
             student's call at T=1 and at the run's sampling. Writes score_<context>.jsonl.
   own       GPU (vLLM). The model's own next call after a context that ends in a forced empty thought (block,
             C-none): one sample at the run's sampling, checked as T-think's own call is. Writes own_<context>.jsonl.
-  report    CPU, stdlib only. Tables by call class and token role, the replay, the gate, and the forced empty thought.
-            Writes gate1.md and gate1.json.
+  report    CPU, stdlib only. Tables by call class and token role, the replay, the gate, the forced empty thought, and
+            the forced thought. Writes gate1.md and gate1.json.
 generate, score and own resume: a rerun skips the states already written.
 """
 from __future__ import annotations
@@ -31,6 +33,7 @@ import re
 import statistics as st
 import sys
 import time
+import zlib
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -47,9 +50,14 @@ CAPS = {"copy_2nd": (99, 80), "copy_3rd_plus": (3, 80), "return_to_earlier": (4,
         "malformed": (99, 40), "after_miss": (3, 100), "after_bad": (2, 50), "after_error": (2, 40),
         "first": (1, 35), "routine": (2, 120)}
 CALL_ROLES = ("tool", "argname", "command", "path", "code", "value")   # the content of a call; struct and think are not
-CONTEXTS = ("S", "C-none", "T-think", "T-hint", "note", "dedup", "block", "T-patch", "T-patch-on", "T-loc", "C-wrong")
-THINKING_ON = {"C-none", "T-think", "T-patch-on"}
+CONTEXTS = ("S", "C-none", "T-think", "T-hint", "note", "dedup", "block", "T-open", "T-patch", "T-patch-on", "T-loc",
+            "C-wrong")
+THINKING_ON = {"C-none", "T-think", "T-open", "T-patch-on"}
 OWN = ("block", "C-none")   # the contexts own samples after: the empty thought forced with thinking off, and on
+# The contexts with a written thought, and the file generate writes it to. T-think thinks where it chooses to; T-open
+# is forced to (the forced thought, report section 4).
+GEN = {"T-think": "gen.jsonl", "T-open": "gen_T-open.jsonl"}
+MIN_THOUGHT = 32   # T-open's default --min-thought: below 98% of T-think's own thoughts on the first run (min 28, p05 57)
 PATCHED = {"T-patch": "patch", "T-patch-on": "patch", "T-loc": "loc", "C-wrong": "wrong"}
 # Gemma 4's chat-template tokens (the model's tokenizer_config.json names them all)
 SPECIAL = {"turn_open": "<|turn>", "turn_close": "<turn|>", "think": "<|think|>", "ch_open": "<|channel>",
@@ -116,6 +124,9 @@ class Vocab:
                 raise SystemExit(f"{s!r} is not one token in this tokenizer: {ids}")
             setattr(self, name, ids[0])
         self.empty_thought = self.enc("<|channel>thought\n<channel|>")   # what thinking off prefills, or writes
+        self.open_thought = self.enc("<|channel>thought\n")              # T-open's prefill: a thought, left open
+        if self.empty_thought != self.open_thought + [self.ch_close]:
+            raise SystemExit(f"the open thought {self.open_thought} is no prefix of the empty one {self.empty_thought}")
         self.think_insert = self.enc("<|think|>\n")                     # what thinking on adds to the system turn
         self.sys_header = self.enc("<|turn>system\n")
         self.close_thought = self.enc("\n<channel|>")                   # ends a thought cut at --budget
@@ -841,7 +852,10 @@ def cmd_prep(a) -> int:
 # ---------------------------------------------------------------- generate (vLLM)
 
 def seed_of(key: str) -> int:
-    return int.from_bytes(key.encode()[-8:].rjust(8, b"\0"), "little") % (2 ** 31)
+    """One seed per state, from its whole key. Until 2026-10-12 it came from the key's last 8 bytes modulo 2^31, which
+    keeps only 4 of them: the first run's 581 states had 75 seeds, so T-think's and own's samples there share seeds
+    within a task."""
+    return zlib.crc32(key.encode()) % (2 ** 31)
 
 
 def load_work(work: Path):
@@ -885,38 +899,50 @@ def judge_call(v: Vocab, s: dict, call: list[int]) -> dict:
 
 
 def cmd_generate(a) -> int:
+    """A thought at every state, then the model's own next call after it. T-think: the thinking-on prompt, and the
+    model decides whether to think. T-open: the same prompt with the thought channel already open, and the model can't
+    close it before --min-thought tokens. vLLM's min_tokens holds back every stop token, <channel|> among them."""
     from vllm import SamplingParams
     from vllm.inputs import TokensPrompt
     v = vocab_for(a)
     states, prompts = load_work(a.work)
-    out_path = a.work / "gen.jsonl"
+    forced = a.context == "T-open"
+    least = a.min_thought if forced else 0
+    pre = v.open_thought if forced else []   # what the thought starts with before the model writes anything
+    out_path = a.work / GEN[a.context]
     done = {r["key"] for r in iter_jsonl(out_path)}
     todo = sorted((s for s in states if s["key"] not in done), key=lambda s: (s["run"], s["task"], s["i"]))
-    print(f"generate: {len(todo)} states to do, {len(done)} done; budget {a.budget}, T={a.temperature}", flush=True)
+    print(f"generate {a.context}: {len(todo)} states to do, {len(done)} done; budget {a.budget}"
+          f"{f', a thought of at least {least} tokens' if forced else ''}, T={a.temperature}", flush=True)
     if not todo:
         return 0
     llm = make_llm(a, prefix_caching=True)
     t0 = time.time()
     for k in range(0, len(todo), a.chunk):
         part = todo[k:k + a.chunk]
-        ctx = [to_thinking_on(v, prompts[s["key"]]["prompt_ids"]) for s in part]
-        sp = lambda s, n, stop: SamplingParams(n=1, temperature=a.temperature, top_p=a.top_p, top_k=a.top_k,
-                                               max_tokens=n, stop_token_ids=stop, seed=seed_of(s["key"]),
-                                               detokenize=False)
+        base = [to_thinking_on(v, prompts[s["key"]]["prompt_ids"]) for s in part]
+        sp = lambda s, n, stop, least=0: SamplingParams(n=1, temperature=a.temperature, top_p=a.top_p, top_k=a.top_k,
+                                                        max_tokens=n, min_tokens=least, stop_token_ids=stop,
+                                                        seed=seed_of(s["key"]), detokenize=False)
         stop1 = [v.ch_close, v.call_close]
-        outs = llm.generate([TokensPrompt(prompt_token_ids=c) for c in ctx], [sp(s, a.budget, stop1) for s in part],
-                            use_tqdm=False)
+        outs = llm.generate([TokensPrompt(prompt_token_ids=b + pre) for b in base],
+                            [sp(s, a.budget - len(pre), stop1, least) for s in part], use_tqdm=False)
         rows, second = [], []
-        for s, c, o in zip(part, ctx, outs):
+        for s, b, o in zip(part, base, outs):
             g = o.outputs[0]
-            ids = ended_with(g, stop1)
+            ids = pre + ended_with(g, stop1)
             row = {"key": s["key"], "thought": [], "truncated": False, "call": [], "finish": g.finish_reason}
             if ids and ids[0] == v.ch_open:
+                # how the thought ended: closed by the model, at the budget, or at a call written inside it
+                row["thought_end"] = ("closed" if ids[-1] == v.ch_close else "call" if ids[-1] == v.call_close
+                                      else "budget")
                 if ids[-1] == v.ch_close:
                     row["thought"] = ids
-                else:   # the budget ran out inside the thought: close it, as vLLM's thinking_token_budget does
+                else:   # cut inside the thought: close it, as vLLM's thinking_token_budget does
                     row["thought"], row["truncated"] = ids + v.close_thought, True
-                second.append((s, c + row["thought"], row))
+                if forced:
+                    row.update(min_thought=least, budget=a.budget, thought_text=v.dec(row["thought"]))
+                second.append((s, b + row["thought"], row))
             else:
                 row["call"] = ids   # no thought: the reply went straight to the call
             rows.append(row)
@@ -1021,7 +1047,7 @@ def build_variant(v: Vocab, name: str, s: dict, pr: dict, gen: dict | None, priv
         ctx = q + (v.empty_thought if name in THINKING_ON else head)
     elif name == "C-none":
         ctx = to_thinking_on(v, p) + v.empty_thought
-    elif name == "T-think":
+    elif name in GEN:   # T-think, T-open: the thought that context wrote (none: T-think went straight to the call)
         if gen is None:
             return None
         ctx = to_thinking_on(v, p) + gen["thought"]
@@ -1065,7 +1091,7 @@ def cmd_score(a) -> int:
     from vllm.inputs import TokensPrompt
     v = vocab_for(a)
     states, prompts = load_work(a.work)
-    gen = {r["key"]: r for r in iter_jsonl(a.work / "gen.jsonl")}
+    gens = {n: {r["key"]: r for r in iter_jsonl(a.work / f)} for n, f in GEN.items()}
     priv = {r["task"]: r for r in iter_jsonl(a.work / "priv.jsonl")}
     names = ["S"] + [c for c in a.contexts if c != "S"]
     bad = [c for c in names if c not in CONTEXTS]
@@ -1083,13 +1109,14 @@ def cmd_score(a) -> int:
         for s in states:
             if s["key"] in done:
                 continue
-            if name == "T-think" and s["key"] not in gen:
-                skipped["no T-think thought yet (run generate)"] += 1
+            if name in GEN and s["key"] not in gens[name]:
+                skipped[f"no {name} thought yet (run generate --context {name})"] += 1
                 continue
             if name != "S" and s["key"] not in sdata:
                 skipped["no S score"] += 1
                 continue
-            built = build_variant(v, name, s, prompts[s["key"]], gen.get(s["key"]), priv.get(s["task"]))
+            built = build_variant(v, name, s, prompts[s["key"]], gens[name].get(s["key"]) if name in GEN else None,
+                                  priv.get(s["task"]))
             if built is None:
                 skipped["does not apply"] += 1
                 continue
@@ -1262,9 +1289,122 @@ def report_block(a, states: dict, scores: dict, gen: dict) -> tuple[list[str], d
     return lines, out
 
 
+LOOPING = ("copy_2nd", "copy_3rd_plus", "return_to_earlier", "stale_other")   # the stuck classes of stale repeats
+EMPTY_LEN = 4   # tokens of the empty thought <|channel>thought\n<channel|> (Vocab.empty_thought); longer is a real thought
+
+
+def escaped(r: dict) -> bool:
+    """A sampled call that leaves the loop: a call, neither a stale repeat nor malformed."""
+    return r["has_call"] and not r["stale"] and not r["malformed"]
+
+
+def report_open(a, states: dict, scores: dict, gens: dict) -> tuple[list[str], dict]:
+    """Section 4: the forced thought (T-open) against T-think, which chooses where to think, by class; then where
+    T-think chose not to think; then on block's states, against the forced empty thought."""
+    tt, to = gens["T-think"], gens["T-open"]
+    own = {n: {r["key"]: r for r in iter_jsonl(a.work / f"own_{n}.jsonl")} for n in OWN}
+    pc = lambda n, k: pexp(scores[n][k]["logp_call_run"]) if k in scores.get(n, {}) else None
+    real = lambda k: k in tt and tt[k]["thought_len"] > EMPTY_LEN
+    keys_of = lambda cls: [k for k, s in states.items() if s["cls"] in cls and k in to and k in tt]
+
+    def shares(rows: list[dict]) -> str:
+        if not rows:
+            return "-"
+        n = len(rows)
+        return (f"{sum(r['same_as_student'] for r in rows) / n:.0%} / {sum(r['stale'] for r in rows) / n:.0%} / "
+                f"{sum(r['malformed'] for r in rows) / n:.0%}")
+
+    def esc(rows: list[dict]) -> str:
+        return f"{sum(map(escaped, rows)) / len(rows):.0%}" if rows else "-"
+
+    def pmean(n: str, keys) -> str:
+        xs = [x for x in (pc(n, k) for k in keys) if x is not None]
+        return fmt(mean(xs), 2) if xs else "-"
+
+    lens = [r["thought_len"] for r in to.values()]
+    ends = Counter(r.get("thought_end", "closed") for r in to.values())
+    least = next((r.get("min_thought") for r in to.values()), None)
+    budget = next((r.get("budget") for r in to.values()), None)
+    out = {"states": len(to), "min_thought": least, "thought_len_median": st.median(lens) if lens else None,
+           "thought_end": dict(ends), "no_call": sum(not r["has_call"] for r in to.values()),
+           "by_class": {}, "t_think_skipped": {}, "t_think_thought": {}, "block_states": {}}
+    lines = ["## 4. The forced thought: thinking on, with the thought forced open", "",
+             f"T-open is T-think with the thought channel already open: the thinking-on prompt, then "
+             f"<|channel>thought\\n, which the model can't close before {least} tokens (vLLM's min_tokens); at most "
+             f"{budget} tokens in all, at the run's sampling. Then its own call, as "
+             "T-think's. T-think decides itself whether to think; T-open thinks at every state. A real thought is "
+             f"longer than the empty one ({EMPTY_LEN} tokens). Escape: the sampled call is a call, neither a stale "
+             "repeat nor malformed.", "",
+             f"T-open's thoughts: {len(to)}, median {fmt(out['thought_len_median'], 0)} tokens; ended "
+             + ", ".join(f"{k} {n}" for k, n in ends.most_common()) + f"; no call after the thought: {out['no_call']}.",
+             "", "| class | states | T-think thinks | p(call): S / T-think / T-open | T-think's own call: same / stale / "
+             "malformed | T-open's own call: same / stale / malformed | escape: T-think / T-open |",
+             "|---|---|---|---|---|---|---|"]
+    for cls in CLASSES:
+        keys = keys_of((cls,))
+        if not keys:
+            continue
+        row = {"states": len(keys), "t_think_thinks": sum(map(real, keys)) / len(keys)}
+        lines.append(f"| {cls} | {len(keys)} | {row['t_think_thinks']:.0%} | "
+                     f"{pmean('S', keys)} / {pmean('T-think', keys)} / {pmean('T-open', keys)} | "
+                     f"{shares([tt[k] for k in keys])} | {shares([to[k] for k in keys])} | "
+                     f"{esc([tt[k] for k in keys])} / {esc([to[k] for k in keys])} |")
+        out["by_class"][cls] = dict(row, escape_t_think=mean(map(escaped, (tt[k] for k in keys))),
+                                    escape_t_open=mean(map(escaped, (to[k] for k in keys))))
+    lines += ["", "Where T-think chose: the looping classes (" + ", ".join(LOOPING) + ") and malformed, split by "
+              "whether T-think wrote a real thought there. The left half is the self-selection: the states where the "
+              "model, free to think, went straight to the call (or wrote the empty thought).", "",
+              "| class | T-think skipped: states | T-think: p(call), stale | T-open: p(call), stale, escape "
+              "| T-think thought: states | T-think: stale, escape | T-open: stale, escape |", "|---|---|---|---|---|---|---|"]
+    for label, cls in [(c, (c,)) for c in LOOPING] + [("all four looping", LOOPING), ("malformed", ("malformed",))]:
+        keys = keys_of(cls)
+        if not keys:
+            continue
+        skip, think = [k for k in keys if not real(k)], [k for k in keys if real(k)]
+        stale = lambda g, ks: f"{sum(g[k]['stale'] for k in ks) / len(ks):.0%}" if ks else "-"
+        lines.append(f"| {label} | {len(skip)} | {pmean('T-think', skip)}, {stale(tt, skip)} | "
+                     f"{pmean('T-open', skip)}, {stale(to, skip)}, {esc([to[k] for k in skip])} | {len(think)} | "
+                     f"{stale(tt, think)}, {esc([tt[k] for k in think])} | "
+                     f"{stale(to, think)}, {esc([to[k] for k in think])} |")
+        for part, ks in (("t_think_skipped", skip), ("t_think_thought", think)):
+            out[part][label] = {"states": len(ks), "tasks": len({states[k]["task"] for k in ks}),
+                                "t_think_stale": mean(tt[k]["stale"] for k in ks),
+                                "t_open_stale": mean(to[k]["stale"] for k in ks),
+                                "t_think_escape": mean(escaped(tt[k]) for k in ks),
+                                "t_open_escape": mean(escaped(to[k]) for k in ks)}
+    blk = [k for k in keys_of(LOOPING) if k in own["block"] and k in own["C-none"]]
+    if blk:
+        lines += ["", f"On the {len(blk)} looping states where block applies (section 3), the share of sampled calls "
+                  "that escape:", "",
+                  "| context | escape | stale | malformed |", "|---|---|---|---|"]
+        for name, rows in (("block (empty thought, thinking off)", [own["block"][k] for k in blk]),
+                           ("C-none (empty thought, thinking on)", [own["C-none"][k] for k in blk]),
+                           ("T-think (its own choice)", [tt[k] for k in blk]),
+                           ("T-open (a forced thought)", [to[k] for k in blk])):
+            n = len(rows)
+            lines.append(f"| {name} | {esc(rows)} | {sum(r['stale'] for r in rows) / n:.0%} | "
+                         f"{sum(r['malformed'] for r in rows) / n:.0%} |")
+            out["block_states"][name.split(" ")[0]] = {"states": n, "escape": mean(map(escaped, rows))}
+    rng = random.Random(a.seed)
+    ex = []
+    for cls in ("copy_3rd_plus", "return_to_earlier"):
+        pool = [k for k in keys_of((cls,)) if to[k].get("thought_text")]
+        for k in rng.sample(pool, min(2, len(pool))):
+            r = to[k]
+            ex += [f"- {cls}, call {states[k]['i']} of {states[k]['n_calls']}, {'escaped' if escaped(r) else 'stale' if r['stale'] else 'not escaped'}:"
+                   f" the student's call `{trim(states[k]['call_text'], 120)}`",
+                   f"  - T-open's thought ({r['thought_len']} tokens): {trim(r['thought_text'], 500)!r}",
+                   f"  - its call: `{trim(r['call_text'], 160)}`"]
+    if ex:
+        lines += ["", "Examples (T-open's thought, then its call):", ""] + ex
+    lines.append("")
+    return lines, out
+
+
 def cmd_report(a) -> int:
     states = {s["key"]: s for s in iter_jsonl(a.work / "states.jsonl")}
-    gen = {r["key"]: r for r in iter_jsonl(a.work / "gen.jsonl")}
+    gens = {n: {r["key"]: r for r in iter_jsonl(a.work / f) if r["key"] in states} for n, f in GEN.items()}
+    gen = gens["T-think"]
     scores = {}
     for name in CONTEXTS:
         rows = {r["key"]: r for r in iter_jsonl(a.work / f"score_{name}.jsonl") if r["key"] in states}
@@ -1398,6 +1538,11 @@ def cmd_report(a) -> int:
     if "block" in scores and "C-none" in scores:
         more, out["block"] = report_block(a, states, scores, gen)
         lines += more
+
+    # 4. the forced thought: does thinking break the copy where the model would not think on its own?
+    if gens["T-open"]:
+        more, out["open"] = report_open(a, states, scores, gens)
+        lines += more
     (a.work / "gate1.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     (a.work / "gate1.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
@@ -1425,9 +1570,14 @@ def main() -> int:
                             "log-softmax over the whole vocabulary at every position of a chunk")
         p.add_argument("--max-seqs", type=int, default=32)
         p.add_argument("--topk", type=int, default=20, help="top logprobs per position (vLLM's max_logprobs)")
-    sub.choices["generate"].add_argument("--budget", type=int, default=512, help="T-think's thinking tokens at most")
-    sub.choices["generate"].add_argument("--call-tokens", type=int, default=1024, help="tokens for T-think's own call")
-    sub.choices["generate"].add_argument("--chunk", type=int, default=128, help="states per batch written to gen.jsonl")
+    sub.choices["generate"].add_argument("--context", choices=sorted(GEN), default="T-think",
+                                         help="T-think (the model chooses whether to think) or T-open (forced to)")
+    sub.choices["generate"].add_argument("--budget", type=int, default=512, help="thinking tokens at most")
+    sub.choices["generate"].add_argument("--min-thought", type=int, default=MIN_THOUGHT,
+                                         help="T-open: the thought can't close before this many tokens")
+    sub.choices["generate"].add_argument("--call-tokens", type=int, default=1024, help="tokens for the own call")
+    sub.choices["generate"].add_argument("--chunk", type=int, default=128,
+                                         help="states per batch written to the context's file (gen.jsonl for T-think)")
     sub.choices["score"].add_argument("--contexts", type=lambda s: [x for x in s.split(",") if x],
                                       default=["S", "C-none", "T-think", "T-hint", "note", "dedup", "block"])
     sub.choices["score"].add_argument("--batch", type=int, default=8, help="prompts per vLLM call (prompt logprobs are big)")
@@ -1449,6 +1599,8 @@ def main() -> int:
         p.add_argument("--top-k", type=int, default=64, help="vLLM's default from the model's generation_config.json")
     sub.choices["report"].add_argument("--topk", type=int, default=20)
     a = ap.parse_args()
+    if hasattr(sys.stdout, "reconfigure"):   # a thought can hold any text; a log that can't encode it escapes it
+        sys.stdout.reconfigure(errors="backslashreplace")
     cmds = {"prep": cmd_prep, "generate": cmd_generate, "score": cmd_score, "own": cmd_own, "report": cmd_report}
     return cmds[a.cmd](a)
 

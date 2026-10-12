@@ -1,0 +1,8 @@
+# The loop study's closed-loop arms (README.md, experiment 2), in baseline/arms.tsv's format, for
+# baseline/baseline_report.py --arms loops/arms.tsv and loops/submit_loops.sh. Both arms run off_args's pinned zip on
+# A100s in resume mode, 4 tasks at once on one GPU, unlike the one-task L40S evals of baseline/arms.tsv. So compare
+# these two arms with each other, not with those runs. {v} is the wheelhouse version; pass k of an arm is
+# <first_run>_r<k>.
+# arm	agent	zip	first_run	extra_runs	ref	kaggle	about
+ctrl	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f.zip	loops_ctrl_{v}_a100	-	-	-	off_args with the model's own chat template: the control
+block	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f.zip	loops_block_{v}_a100	-	ctrl	-	off_args with the always-block template: the empty thought prefilled after every tool response

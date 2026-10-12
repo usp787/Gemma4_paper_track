@@ -9,17 +9,21 @@
 #   2. core   (one A100 80 GB, ~4-5 h): generate (T-think's thoughts and its own calls), score the contexts
 #             S C-none T-think T-hint note dedup block, then own (the own calls after block and C-none).
 #   3. patch  (one A100, ~2.5 h, only with PATCH=1): score the patched teachers T-patch T-patch-on T-loc C-wrong.
-#   4. report (CPU, minutes): gate1.md and gate1.json, once the jobs before it have ended either way.
+#   4. open   (one A100, ~1.3 h, only when STEPS names it): the forced thought, T-open (report section 4). Its thought
+#             can't close before 32 tokens; then its own call, and the student's call scored after the thought.
+#   5. report (CPU, minutes): gate1.md and gate1.json, once the jobs before it have ended either way.
 # The work dir is /scratch/$USER/gemma4/paper/gate1/$NAME. A rerun with the same NAME resumes: generate and score skip
 # what is already written, e.g. after a job hit its time limit: STEPS="core report" GO=1 bash gate1/submit_gate1.sh.
 # The same resume adds what a work dir from before 2026-10-11 lacks (block and own), in about 1 h.
+# The forced thought, on the first run's work dir: STEPS="open report" GO=1 bash gate1/submit_gate1.sh
 # Env:
 #   NAME     work dir name (default gate1_<first run>)
-#   STEPS    any of "prep core patch report" (default: prep core report, and patch with PATCH=1)
+#   STEPS    any of "prep core patch open report" (default: prep core report, and patch with PATCH=1)
 #   PATCH=1  add the patched teachers (they read the gold patches from /scratch/$USER/gemma4/data/tasks.jsonl)
-#   CORE_TIME (06:00:00), PATCH_TIME (05:00:00), GPU (a100), PARTITION (gpu), CONSTRAINT (a100@80g; empty for none)
-#   PREP_ARGS, GEN_ARGS, SCORE_ARGS, OWN_ARGS, REPORT_ARGS: more gate1.py arguments, e.g. PREP_ARGS="--scale 0.1"
-#            for a try
+#   CORE_TIME (06:00:00), PATCH_TIME (05:00:00), OPEN_TIME (02:00:00), GPU (a100), PARTITION (gpu),
+#            CONSTRAINT (a100@80g; empty for none)
+#   PREP_ARGS, GEN_ARGS, SCORE_ARGS, OWN_ARGS, OPEN_ARGS, REPORT_ARGS: more gate1.py arguments, e.g.
+#            PREP_ARGS="--scale 0.1" for a try, OPEN_ARGS="--min-thought 64"
 #   AFTER=<job id>: start the chain once that job has ended, e.g. step 3's driver, to score its run as well
 #   FORCE=1: queue even though gate1 jobs of ours are queued or running (they would write the same work dir)
 set -euo pipefail
@@ -51,7 +55,7 @@ done
 [ -s "$R/models/gemma-4-31b-it-qat-w4a16-ct/model.safetensors" ] || blocked+=("the model is missing: (cd $MAIN && sbatch slurm/fetch_model.slurm)")
 [ -x "$R/venvs/vllm_host/bin/python" ] || blocked+=("no venv $R/venvs/vllm_host")
 [ -f "$MAIN/baseline/gpu_guard.sh" ] || blocked+=("no main-track checkout at $MAIN (set MAIN=...)")
-if ! has prep && { has core || has patch; } && [ ! -s "$WORK/states.jsonl" ]; then
+if ! has prep && { has core || has patch || has open; } && [ ! -s "$WORK/states.jsonl" ]; then
   blocked+=("no $WORK/states.jsonl yet: add prep to STEPS")
 fi
 if has patch && ! has prep && [ ! -s "$WORK/priv.jsonl" ]; then
@@ -101,6 +105,11 @@ fi
 if has patch; then
   queue patch "$mode" "${COMMON[@]}" STEPS=score CONTEXTS=S,T-patch,T-patch-on,T-loc,C-wrong \
     SCORE_ARGS="${SCORE_ARGS:-}" -- "${GPU_RES[@]}" -t "${PATCH_TIME:-05:00:00}"
+  mode=afterany
+fi
+if has open; then
+  queue open "$mode" "${COMMON[@]}" STEPS=open OPEN_ARGS="${OPEN_ARGS:-}" SCORE_ARGS="${SCORE_ARGS:-}" -- \
+    "${GPU_RES[@]}" -t "${OPEN_TIME:-02:00:00}"
   mode=afterany
 fi
 if has report; then

@@ -353,6 +353,7 @@ Paths are in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo).
 - **Experiments, data and models** stay in [Gemma4_kaggle_repo](https://github.com/usp787/Gemma4_kaggle_repo) and run on NEU Explorer, per that repo's CLAUDE.md.
 - **[baseline/](baseline/README.md)** records the status of the OPSD baseline arms, which run on wheelhouse v30 since 2026-10-10. Its launcher queues their runs through that repo's eval tooling; you submit, with `GO=1`.
 - **[adaptive_inference/](adaptive_inference/README.md)** holds the per-call thinking controller and the "who decides when the agent thinks" comparison.
+- **[loops/](loops/README.md)** holds the loop study, proposed on 2026-10-12 as the paper's new scope. It has the always-block closed-loop run and the start prompt of the literature review; the forced-thought replay that goes with it is in [gate1/](gate1/README.md).
 - **Don't commit competition data here** (tasks, snapshots, graphs, embeddings). The rules forbid redistributing it, and this repo may go public along with the paper.
 
 ## Sources
