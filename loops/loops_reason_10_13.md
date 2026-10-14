@@ -1,153 +1,248 @@
 # loops/loops_reason_10_13.md: why the tool-call loops happen
 
-<!-- written 2026-10-13. Numbers come from three places:
-     - the closed-loop control and always-block arms, $R/paper/loops/report_p1_1012-1727 (loops.md, loops.json);
-     - Gate 1's work dir, gate1_baseline_nothink_args_v30_zip (gate1.md sections 2-4);
-     - ../gate1/README.md.
-     The 95% intervals and the stuck-stretch counts come from read-only checks of copied outputs on 2026-10-12. Those scripts sit in a session scratchpad, not in this repo.
-     The same content, with figures, is the "Why loops happen" section of loop_illustration.html. -->
+<!-- written 2026-10-13, and revised the same day after the review at the end of this file (GPT 6.1 Sol). Its
+     corrections are folded into sections 1-8, its rollout argument is section 9, and its ablation plan is round 2 in
+     README.md section 3. Numbers come from:
+     - the closed-loop control and always-block arms, $R/paper/loops/report_p1_1012-1727 (loops.md, loops.json,
+       baseline_dev.md, baseline_rich.md);
+     - Gate 1's work dir, gate1_baseline_nothink_args_v30_zip (gate1.md sections 1-4);
+     - ../gate1/README.md, and the main track's agentic_workflow/README.md for the submit_patch loops.
+     Re-derived on 2026-10-13 from the local copies in ../../Gemma4_kaggle_repo/logs/loop_audit_20261013/: section 5's
+     paired intervals (20,000 task resamples), the always-block table, the seed count and the fastapi_12942 traces. That
+     script sits in a session scratchpad, not in this repo; so do the 10-12 checks behind the stuck-stretch counts.
+     The citations were checked against the primary texts on 2026-10-13.
+     loop_illustration.html's "Why loops happen" section still has the wording from before this revision. -->
 
 **The question:** why does Gemma 4 31B with thinking off lock onto one tool call, and why do only some levers break the lock?
 
-**The short answer:** five principles, one for each stage of the loop.
+**The short answer:** five principles, one for each stage of the loop. One is a causal effect we measured; the others are observed patterns, mechanisms known from neighbouring settings, or hypotheses.
 
 | Stage | Principle | Status |
 |---|---|---|
-| Lock-in | Each copy multiplies the odds of the next (self-reinforcement). | Established; measured here |
-| Copying | The repeated tool result is the cue for the copy (induction). | Hypothesis |
-| Hardening | Low temperature turns a preference into a certainty. | Established; measured here |
-| Onset | The model repeats a call that can't teach it anything, under a strong prior. | Established principle; seen in our traces |
-| No escape | The model thinks when unsure, and a loop is where it is most sure. | Measured here (T-open) |
+| Lock-in | The longer a run of identical calls, the likelier one more copy. | Observed here. Self-reinforcement, established in text, is the candidate cause; not isolated here |
+| Copying | The repeated tool result is the cue for the copy (induction). | Hypothesis, with a rival: format or mode conditioning |
+| Hardening | Low temperature concentrates each token's choice. | Established; large at our replay states; its share of closed-loop lock-in is untested |
+| Onset | Loops start at searches that come back empty, then get re-sent unchanged. | Seen in our traces |
+| No escape | Spontaneous thinking often skips looping states where a forced thought helps. | Measured here (T-open), one step ahead |
 
-**Terms** follow [loop_illustration.html](loop_illustration.html), "Terms used on this page":
+**Terms** follow [loop_illustration.html](loop_illustration.html), "Terms used on this page", with lock-in and the replay's probability stated more exactly:
 - a *copy* repeats the call just before;
-- a *stale repeat* is any call identical to an earlier one, with no successful edit in between;
-- *lock-in after k* is P(the next call is one more copy | the last k calls were identical);
-- *p(copy)* is the replay's probability of the copy at the run's sampling (T = 0.2, top-p 0.95, top-k 64).
+- a *stale repeat* is any call identical to an earlier one, with no successful `edit_file` or `write_file` in between. It stands in for a repeat that can't teach anything, and it misses edits made through `run_command` (§4);
+- *lock-in after k* is P(the next call is one more copy | the current run of identical calls has length k). At k = 1 the last call differs from the one before it; k = 3+ pools every run of 3 or more;
+- *p(copy)* is the replay's probability of the student's recorded call at the run's sampling (T = 0.2, top-p 0.95, top-k 64). It is rebuilt from the top 20 logprobs, along the call's recorded tokens (§3);
+- an *escape* is a sampled call that parses and is neither stale nor malformed (`escaped()` in [../gate1/gate1.py](../gate1/gate1.py)). It is never executed, so it may still be useless, such as a new search that also finds nothing.
 
-## 1. Lock-in is a self-reinforcing process
+## 1. Lock-in: persistence rises with run length
 
-*Status: established in text generation; measured here.*
+*Status: observed here. Self-reinforcement is established in text generation; our curve is consistent with it but doesn't isolate it.*
 
-Each copy multiplies the odds of the next one. These are the control arm's numbers over 109 tasks, dev and rich pooled (`loops.json`):
+The control arm's numbers over 109 tasks, dev and rich pooled (`loops.json`):
 
-| The last k calls were identical | P(next call is a copy) | Cases | Odds | Odds multiplied by |
-|---|---|---|---|---|
-| k = 1 (any call) | 2.7% | 2,649 | 0.03 | – |
-| k = 2 | 77.5% | 71 | 3.4 | ×120 |
-| k = 3+ | 95.7% | 1,176 | 22.5 | ×6.5 |
+| Current run of identical calls | P(next call is a copy) | Cases | Odds |
+|---|---|---|---|
+| k = 1 (the last call differs from the one before it) | 2.7% | 2,649 | 0.03 |
+| k = 2 | 77.5% | 71 | 3.4 |
+| k = 3+ | 95.7% | 1,176 | 22.5 |
 
-- **The same law as repetition in text:**
-  - A repeated phrase becomes more likely with each repetition (Holtzman et al., Fig. 4), and the effect then saturates (Xu et al.).
-  - A Pólya urn behaves this way: every ball drawn adds another ball of its colour.
-- **Run length.** If each call continues the loop with probability $q$, the rest of the run is geometric:
+- **What the curve shows:** the chance of one more copy rises sharply with the observed run length, as self-reinforcement predicts.
+- **What it can't show:** that each copy makes the next one likelier.
+  - It compares different histories met during rollouts. Long runs can be enriched for sticky tasks or commands even if no copy changes anything: survivor selection.
+  - The k = 3+ value is weighted by transitions, so long runs contribute many cases.
+- **Where self-reinforcement is shown:** in text, by feeding a model a constructed input in which one phrase or sentence repeats a chosen number of times.
+  - Holtzman et al.'s Fig. 4 repeats "I don't know." 200 times: the phrase's probability rises with each repetition.
+  - Xu et al. repeat sentences 100 times: the probability of repetition rises "almost monotonically", then "stabilizes around a certain ceiling value".
+  - A Pólya urn, where every ball drawn adds another of its colour, is a picture of this, not evidence.
+- **The interventional evidence here:** at the same replay states, deleting the earlier copies (dedup) takes p(copy) at 3rd-or-later copies from 0.94 to 0.14 (gate1.md §2). Dedup also shortens the context and moves positions, so it isn't a clean dose test. Round 2's G1 adds 1, 2 or 4 copies to fixed histories ([README.md](README.md) §3).
+- **Run length, as an illustration.** If each call continued the run with a constant probability $q$, the number of further copies $N$ before the first call that isn't one would be geometric:
 
-$$\mathbb{E}[\text{further copies}] = \frac{1}{1-q}$$
+$$P(N = n) = q^{n}(1-q), \qquad \mathbb{E}[N] = \frac{q}{1-q}$$
 
-| Arm | q at k = 3+ | Expected further copies |
+  The $1/(1-q)$ used here before also counts the call that ends the run.
+
+| Arm | q at k = 3+ | Expected further copies, if q stayed constant |
 |---|---|---|
-| Control | 0.957 (dev 0.957, rich 0.958) | ≈ 23 |
-| Always-block | 0.890 (dev 0.844, rich 0.920) | ≈ 9 (dev 6, rich 12) |
+| Control | 0.957 (dev 0.957, rich 0.958) | ≈ 22 |
+| Always-block | 0.890 (dev 0.844, rich 0.920) | ≈ 8 (dev 5.4, rich 11.5) |
 
-- **Why loops end from outside.** In the control arm, 23 further calls is more than most loops have left before the budget warning. So 48 of the 55 runs of 3+ end at an outside event (the budget warning, a compaction or the end of the task), and only 7 end on their own.
-- **Why the always-block template fragments loops.** Near $q = 1$ the mean is very sensitive to $q$, so a modest drop cuts runs sharply. That matches what the always-block template did over whole tasks:
-  - the number of stuck stretches barely moved: 36 → 41 on dev, 36 → 29 on rich;
-  - they got shorter: 18.9 → 11.0 calls on dev, 22.0 → 19.9 on rich.
+  - Histories differ, and warnings, compactions and task ends interrupt runs, so a constant $q$ is an illustration, not a fit.
+  - Near $q = 1$ the mean is very sensitive to $q$, since $d\,\mathbb{E}[N]/dq = 1/(1-q)^2$. A modest drop in $q$ shortens runs sharply.
+- **How runs of 3+ end.** In the control arm, 48 of 55 end under an outside event and 7 on their own.
+  - `end_of()` in [loop_report.py](loop_report.py) checks, in this order: the task ends inside the run; a budget warning arrived in any of its results; the next prompt is shorter (a compaction).
+  - A task end can cut off a loop that was still going, and a warning can arrive well before the run changes. So this is a classification, not a cause.
+- **The always-block template over whole tasks,** control → block:
 
-## 2. The repeated result is the cue for the copy
+| Metric | Dev, 70 tasks | Rich, 39 tasks |
+|---|---|---|
+| Resolved | 25 → 24 (Δ −1; 95% CI −6 to +3) | 12 → 13 (Δ +1; −2 to +5) |
+| Stale-call share | 32.3% → 26.3% | 53.6% → 48.3% |
+| Copy starts (share of calls) | 1.5% → 3.1% | 2.3% → 4.4% |
+| Lock-in at k = 3+ | 95.7% → 84.4% | 95.8% → 92.0% |
+| Runs of 3+ identical calls | 28 → 50 | 27 → 37 |
+| Runs of 5+ identical calls | 23 → 36 | 20 → 31 |
+| Tasks with at least half their calls bad | 15 → 6 | 19 → 17 |
+| Malformed-call share | 4.0% → 1.6% | 2.5% → 5.5% |
+| Mean agent seconds per task | 120 → 117 | 98 → 116 |
 
-*Status: hypothesis. It fits four observations but is untested.*
+  - Both arms resolve 37 of 109. The block lowers the stale share and fragments runs of identical calls, but more runs start. On rich it also costs time and malformed calls.
+  - A broader measure, stretches of 3+ bad calls in a row, counts any stale or malformed calls, not only identical ones. Their number barely changed (36 → 41 on dev, 36 → 29 on rich), and they got shorter (18.9 → 11.0 calls on dev, 22.0 → 19.9 on rich). The two measures count different things; don't mix them.
 
-- **The mechanism.** Induction heads (Olsson et al.) find where the current context appeared before and copy what followed: A B … A → B.
-- **How it applies to a tool loop:**
+## 2. The repeated result as the cue for the copy
+
+*Status: hypothesis. It fits our observations, but every lever we tried changes more than the cue, and format conditioning explains some of them too.*
+
+- **The mechanism.** Induction heads (Olsson et al.) find an earlier occurrence of the current token and copy what came after it: [A][B] … [A] → [B].
+  - The paper's evidence is causal in small models, from ablations. For large models with MLPs it is "mainly correlational": "we do not have ablations for our full-scale models".
+  - No one has intervened on Gemma's heads here.
+- **How it would apply to a tool loop:**
   - 91% of stale repeats got exactly the result their earlier copy got ([../gate1/README.md](../gate1/README.md)).
   - So the context ends with a result $r$ that appeared before, and the previous time, $r$ was followed by call $c$.
-  - The repeated result doesn't signal "stop" to the model. It is the cue for "send $c$".
-- **Four observations fit:**
-  1. **The model's own p(copy) jumps between the 2nd and the 3rd copy.** At the first repeat, $r$ has never been followed by $c$, so the cue doesn't exist yet; from the third call on, it does. At T = 1 with top-p 0.95, p(copy) is 0.26 at 2nd copies and 0.73 at 3rd-or-later ones (gate1.md §2).
-  2. **Changing the last result weakens the copy.** The note and the hindsight hint add text to the last tool result. At 3rd-or-later copies they take p(copy) from 0.94 to 0.49 and to 0.45 (gate1.md §2).
-  3. **The empty thought puts four tokens between the result and the call.** Those tokens never appear in the history, because the template strips past empty thoughts, so the result-to-call adjacency is broken. p(copy) falls from 0.95 to 0.50 on the 40 third-or-later copies where it applies (gate1.md §3).
-  4. **The always-block run on `fastapi_12942` alternates two failing greps:** A ×9, B, A ×5, B, and so on. After B's empty result, the history already holds "B's result, then A" (calls 7 and 8). The cycle is itself a copied pattern.
-- **The statistical version.** In-context learning behaves like Bayesian inference over a hidden concept (Xie et al.).
-  - Read the agent's own past calls as examples of a hidden "what this agent does here".
-  - Each copy is more evidence for "it sends $c$", so the posterior odds multiply, as in §1.
-  - Sinha et al.'s self-conditioning and Wan et al.'s conversational inertia are this effect seen in agents.
-- **Tests, for later** (one replay context each):
-  - Make each repeated result differ in a way that carries no meaning, such as a request id. If lock-in falls sharply, the exact match matters.
-  - Separately, add a counter ("this command has returned nothing 3 times"). That adds information as well as breaking the match, so it tests something different.
+  - On this reading, the repeated result doesn't tell the model to stop. It is the cue to send $c$.
+- **Four observations fit, each with another explanation:**
+  1. **p(copy) is higher at 3rd-or-later copies than at 2nd copies.** At T = 1 with top-p 0.95 it is 0.26 at 2nd copies and 0.73 at 3rd-or-later ones (gate1.md §2). At the first repeat, $r$ has never been followed by $c$, so the cue doesn't exist yet. *But* each class is defined by the call the student made, so the two are different, outcome-selected sets of states, not one history with one more repetition. The T = 1 values are also approximate (§3).
+  2. **Changing the last result weakens the copy.** The note and the hindsight hint add text to the last tool result. At 3rd-or-later copies they take p(copy) from 0.94 to 0.49 and to 0.45 (gate1.md §2). *But* both change what the result says, and both tell the model what to do ("Do not run it again"), so they don't isolate the surface match.
+  3. **The empty thought puts four tokens after the result.** The template strips past empty thoughts, so those tokens never appear in the history, and the end of the context no longer matches the earlier "$r$, then $c$". p(copy) falls from 0.95 to 0.50 on the 40 third-or-later copies where it applies (gate1.md §3). *But* the same four tokens mark the thinking mode. Google's formatting notes say to "consider adding an empty thinking token" for edge cases where the larger models open a thought with thinking off, and HF PR #147 proposes the same edit after tool responses. So the result fits mode conditioning as well as a broken cue.
+  4. **The always-block run on `fastapi_12942` alternates two failing greps.**
+     - A is `grep -r "get_endpoint_params" .`: exit 1, no output. B is the same search in `fastapi/`, piped to `head`: exit 0 and no output, because `head` hides grep's exit code. These are the two kinds of empty result in §6.
+     - The run goes A, B, A, B (calls 5–8), then A ×9. Call 18 is a different grep, which finds something. Calls 19–56 are A ×5, B, A ×6, B, A ×5, B, A ×5, B, A ×4, B, A ×8. Then the agent submits.
+     - Whenever B comes back empty, the history already holds "B's result, then A", first at calls 6–7.
+     - The alternation is real, but the trace doesn't show that induction causes it.
+     - The control run of the same task ends differently: 35 copies of one `edit_file`, each answered "No changes to apply. old_string and new_string are identical."
+- **The Bayesian version is an analogy.** Xie et al. derive in-context learning as implicit Bayesian inference over a latent concept. They assume pretraining data drawn from a mixture of hidden Markov models, and a model that fits that distribution exactly. Read the agent's past calls as examples of "what this agent does here", and each copy is more evidence for "it sends $c$". But self-generated, correlated actions aren't independent evidence, so this doesn't derive §1's curve.
+- **Agents show the same behaviour, without a settled mechanism.**
+  - Sinha et al. show self-conditioning by injecting errors into the history at chosen rates.
+  - Wan et al. find that agents "mimic their own previous responses as few-shot examples", and tie it to diagonal attention. They "do not claim definitive causal identification".
+- **The test is round 2's G2** ([README.md](README.md) §3), a 2 × 2 replay factorial:
+  - the repeated results either keep their surface form or get varying arbitrary IDs;
+  - they carry either neutral text or a faithful reading of the result.
+  - One more context keeps the empty thought in the history, which separates a broken cue from mode conditioning.
 
-## 3. Low temperature turns a preference into a certainty
+## 3. Low temperature concentrates each choice
 
-*Status: established; measured here.*
+*Status: established at the token level, and large at our replay states. How much of closed-loop lock-in it explains is untested.*
 
-Sampling at temperature $T$ draws from the renormalised
+Sampling at temperature $T$ draws each token from the renormalised
 
-$$p_T(x) \propto p(x)^{1/T}, \qquad \frac{p_T(a)}{p_T(b)} = \left(\frac{p(a)}{p(b)}\right)^{1/T}$$
+$$p_T(x_t \mid x_{<t}) = \frac{p(x_t \mid x_{<t})^{1/T}}{Z_T(x_{<t})}, \qquad Z_T(x_{<t}) = \sum_{v} p(v \mid x_{<t})^{1/T},$$
 
-At T = 0.2 the odds between two calls are raised to the fifth power, so 2 : 1 becomes 32 : 1. For a whole call, the sharpening applies at every token. The replay separates this from the model's own preference at the same states (gate1.md §2):
+then truncates to the top-k and the top-p nucleus.
+- Two tokens at the same position get odds $\big(p(a)/p(b)\big)^{1/T}$, before truncation or after it when both survive. At T = 0.2, 2 : 1 becomes 32 : 1.
+- A whole call is a product over its tokens:
 
-| State | Model's own p(call), T = 1, top-p 0.95 | At the run's T = 0.2 |
+$$p_T(c \mid h) = \prod_{t} \frac{p(c_t \mid h, c_{<t})^{1/T}}{Z_T(h, c_{<t})}$$
+
+- Once two calls diverge, their normalisers differ, and truncation can keep different tokens. So the odds between whole calls are not in general raised to $1/T$.
+
+The replay scores the student's recorded call at the same states under both samplers (gate1.md §2):
+
+| State | p(recorded call), T = 1, top-p 0.95 | At the run's T = 0.2 |
 |---|---|---|
 | 2nd copy | 0.26 | 0.77 |
 | 3rd-or-later copy | 0.73 | 0.94 |
 | Routine call, for reference | 0.52 | 0.78 |
 
-- **Lock-in has two factors:**
-  - in-context reinforcement raises the model's own preference for the copy (0.26 → 0.73 from 2nd to 3rd-or-later copies);
-  - low temperature makes the most likely call nearly certain. At the 2nd copy, most of the 78% lock-in comes from the sampler.
-- **The classic degeneration result.** Near-greedy decoding of a self-reinforcing process settles into a cycle (Holtzman et al.). Pipis et al. call temperature "a stopgap"; in these terms, it removes the second factor and leaves the first.
-- **The limit of the fix.** At 3rd-or-later copies the model's own preference is already 0.73, so T = 1 would weaken lock-in, not remove it.
+- **These are approximations.**
+  - They are rebuilt from the top 20 logprobs, but the run samples from the top 64. Dropping the mass outside the top 20 can overstate the kept tokens' probabilities, especially at T = 1, and can shift the rebuilt nucleus. The error hasn't been bounded.
+  - Each is the probability of the recorded token sequence, not of every way to write the same call.
+  - Before splitting lock-in between the model and the sampler, check the cutoff's coverage, or rescore with at least the configured top-k.
+- **What the table supports:** at these replay states the sampler sharpens a lot. At 2nd copies, the recorded copy goes from 0.26 at T = 1 to 0.77 at T = 0.2.
+- **What it doesn't support:**
+  - *That most closed-loop lock-in comes from the sampler.* Closed-loop k = 2 (77.5%, §1) is P(a 3rd identical call | two in a row), over every history. A replay 2nd-copy state is the 2nd identical call, at states picked because the student did copy. They are different estimands; their similar values don't apportion anything.
+  - *That in-context reinforcement raised the model's own preference from 0.26 to 0.73.* Those are different outcome-selected classes (§2).
+- **The classic result.** Holtzman et al. found that maximization-based decoding gives degenerate text that "gets stuck in repetitive loops".
+  - In their Table 1, greedy output is 73.66% repetition and beam search 28.94%, against 0.28% for human text.
+  - Stochastic methods repeat too when their parameters are set so low that they mimic greedy search.
+  - They show this empirically; they don't derive that decoding settles into a cycle.
+  - Pipis et al. find that reasoning models loop most at low temperature: "temperature is a reasonable fix when errors are small, but a stopgap when they are large".
+- **The limit of the fix.** At 3rd-or-later copies the recorded copy keeps 0.73 at T = 1, so a higher temperature would likely weaken lock-in, not remove it.
   - The only closed-loop data at T = 1 is `agentic_v2` on v28, a different prompt. It still locked in at 73%.
-  - An `off_args` run at Google's prescribed T = 1.0 is still missing ([literature.md](literature.md) §6).
+  - Round 2's G3 adds the matched `off_args` arm at Google's T = 1.0 ([README.md](README.md) §3; [literature.md](literature.md) §6).
 
-## 4. Loops start with a call that can't teach anything
+## 4. Loops start at searches that come back empty
 
-*Status: established principle; seen in our traces.*
+*Status: seen in our traces. The "can't teach anything" argument holds only for unchanged, read-only calls, and our stale label approximates them.*
 
-- **Why a repeat is worthless, and why the model makes it anyway:**
-  - In a deterministic environment, an identical read-only call returns what it returned before, so its information gain is zero.
-  - A rational searcher never makes one, and our stale repeat is exactly this set of calls.
-  - Next-token training has no term for information gain. The model picks what is likely given the context.
+- **When a repeat is worthless.** In a deterministic environment that hasn't changed, an identical read-only call returns what it returned before, so it adds no evidence.
+  - A rational searcher wouldn't make it.
+  - Next-token and imitation objectives have no explicit term for information gain. The model picks what is likely given the context.
+- **Our stale label approximates that set; it isn't the set.**
+  - [trigger_replay.py](../adaptive_inference/trigger_replay.py) clears staleness only after a successful `edit_file` or `write_file`, so it misses edits made through `run_command`. The replay's states include repeated shell writes such as `cat <<EOF > tests/test_ref_handling.py`.
+  - A repeat can become useful after the environment changes. A re-read after compaction can restore what the visible history lost.
+  - A rough check on §5's skipped states: dropping the 10 whose recorded call writes leaves 11/104 escapes for T-think and 59/104 for T-open (all 114: 12 and 66). That isn't a full adjudication.
 - **The onset in our traces** ([../gate1/README.md](../gate1/README.md), "How a loop starts"):
-  1. The model searches for something it strongly believes exists, such as a plausible function name that isn't in the file (`get_openapi_route`).
-  2. The empty result contradicts that belief but carries almost no text to condition on. In `off_args`'s first v30 run, 270 of the 580 repeated `run_command` calls got nothing back.
-  3. After an empty search, the next call is a variant 78% of the time and a copy 1%. When the variants also fail, the model returns to its first and most likely query: 114 of 131 chains of bad calls start by re-sending a call from 2 or more calls back.
-- **The disconnect, measured directly.** Liu et al. find that shuffling an agent's past actions costs it only 2.55 points. It isn't tracking which call produced which result.
-- **Why it happens once the agent is off track (learning theory).**
-  - A policy trained to imitate experts errs at rate $\varepsilon$ per step, and each error takes it to states the experts never visited, where it has nothing to imitate.
-  - Over a horizon of $H$ steps its errors therefore grow as $O(\varepsilon H^2)$ rather than $O(\varepsilon H)$.
-  - This is the analysis behind DAgger (Ross, Gordon & Bagnell). A made-up function name is such a state, and copying its own recent behaviour is the policy's fallback there.
-  - Pipis et al. find the same in reasoning models: when progress is hard to learn, an easy repeating action keeps its probability, and distilled students loop more than their teachers (30% vs 4%).
+  1. The model searches for something it strongly expects, such as a plausible function name that isn't in the file (`get_openapi_route`).
+  2. The empty result contradicts that expectation, but gives little text to condition on. In `off_args`'s first v30 run, 270 of the 580 repeated `run_command` calls got nothing back.
+  3. After an empty search, the next call is a variant 78% of the time and a copy 1%. When the variants fail too, the model returns to its first and most likely query: 114 of 131 chains of bad calls start by re-sending a call from 2 or more calls back.
+- **Agents use action–outcome pairing only modestly.** Liu et al. shuffle which past action goes with which observation.
+  - Task success falls by only 2.55 points overall (46.39% → 43.84%; 0.30–5.40 points by model). That suggests limited use of the pairings, not none.
+  - Their two fixes differ. Outcome labels on past actions ("Causal Transition") raise success to 48.25%. Generated experience notes cut next-action repetition the most, but lower success to 45.01%.
+- **Compounding errors, as an analogy.** Take a policy trained by plain imitation that errs with probability ε on the expert's own states. Over $T$ steps it can incur up to $T^2\varepsilon$ extra cost (Ross & Bagnell 2010, restated as Theorem 2.1 by Ross, Gordon & Bagnell). DAgger's interactive training brings the bound down to linear in $T$ when the expert can recover from the learner's mistakes.
+  - The intuition, in their words: after a mistake the learner "may encounter completely different observations than those under expert demonstration".
+  - The bound is tight on some problems, not a law. It doesn't describe how Gemma was trained, and not every mistake leads to an unfamiliar state.
+  - A made-up function name may lead to such a state, and copying its own recent behaviour is one fallback there.
+- **The reasoning-model parallel.** Pipis et al. show, on a synthetic graph task with a small Transformer, that when the progress-making action is hard to learn but an easy cyclic action exists, the model puts relatively more probability on the cyclic one.
+  - A distilled student can loop much more than its teacher: 30% against 4% in their example pair, at greedy decoding on AIME.
+  - Their loops are in reasoning text, and "cyclic" means returning to a visited state, not an identical call. The mapping to SWE tool calls is loose.
 
-## 5. The model thinks when unsure, and a loop is where it is most sure
+## 5. Spontaneous thinking often skips the states where a thought helps
 
-*Status: measured here (T-open).*
+*Status: measured here (T-open), one step ahead.*
 
-- **The right rule.** Metareasoning (Russell & Wefald) says to deliberate when the expected gain from thinking exceeds its cost, the value of computation:
+- **The normative frame.** Metareasoning (Russell & Wefald) says to deliberate when the expected gain from thinking exceeds its cost, the value of computation:
 
 $$\mathrm{VOC}(h) = \mathbb{E}\big[U(a_{\text{after thought}})\big] - \mathbb{E}\big[U(a_{\text{now}})\big] - c_{\text{thought}}$$
 
-- **The rule the model follows instead.** It behaves as if it thinks when uncertain. Free to think (T-think), it writes a real thought at 72% of 2nd copies and 23% of 3rd-or-later copies, while p(copy) rises from 0.77 to 0.94 (gate1.md §2 and §4).
-- **Why that is backwards here.** At a loop state the current action is worth nothing (it can't teach anything), and a thought improves it 58–69% of the time. So VOC is highest exactly where uncertainty is lowest.
-- **T-open measures this.** On the looping states (213 in 44 tasks):
-  - where T-think skipped the thought, a forced thought escapes 58% of the time (95% CI 46–69), against 11% (5–16);
-  - where T-think chose to think, the two are the same: 63% and 62%.
-  - So thinking helps as much where the model skipped it as where it picked it, and the model's trigger carries no information about the benefit.
-- **Any trigger built on confidence or entropy has this blind spot.** HRBench calls the failures "confident wrong answers". A router trained to maximise action confidence (CogRouter) would learn to skip exactly these states.
-- **What a useful trigger reads.** It needs a signal tied to the benefit, such as "my last call returned the same result as before".
-  - A harness sees that easily, so a controller outside the model can decide when to think.
+  The replay measures no utility and no thought cost, so VOC frames the question; it isn't a result.
+- **The pattern.** Free to think (T-think), the model writes a real thought at 72% of 2nd copies and 23% of 3rd-or-later copies, while the recorded copy's probability rises from 0.77 to 0.94 (gate1.md §2 and §4).
+  - It thinks less where its recorded call is more probable.
+  - That fits a trigger driven by confidence, but the replay doesn't measure calibrated confidence or entropy.
+- **T-open forces the thought.** On the 213 looping states in 44 tasks, paired by state, with 95% intervals from 20,000 resamples of tasks:
+
+| Looping states | T-think escapes | T-open escapes | Paired difference (95% interval) |
+|---|---|---|---|
+| T-think skipped the thought: 114 states, 36 tasks | 12/114 = 10.5% | 66/114 = 57.9% | +47.4 points (33.0 to 61.1) |
+| T-think thought: 99 states, 34 tasks | 61/99 = 61.6% | 62/99 = 62.6% | +1.0 points (−6.7 to 9.1) |
+| All looping states: 213, in 44 tasks | 73/213 = 34.3% | 128/213 = 60.1% | +25.8 points (16.0 to 36.0) |
+
+  - Where T-think thought, the similar rates hide churn: 15 states gain an escape under T-open and 14 lose one.
+  - T-think's samples on the first run shared seeds within tasks: 581 states had 75 seeds. T-open has one seed per state. Resampling whole tasks respects that clustering, but a replication should use independent seeds.
+  - These are one-step escapes in a selected replay population, not solved tasks.
+- **What it supports:** spontaneous thinking often skips states where a forced thought raises one-step escape a lot, by 47 points.
+- **What it doesn't support:**
+  - *That the trigger is blind to the benefit.* Where the model chose to think, a forced thought escapes as often as its own (63% against 62%, same states), so a forced thought is no worse than a chosen one. But the benefit is escape with a thought minus escape without one, and the replay has no thought-free sample where T-think thought. Round 2 bounds it from `score_S.jsonl` ([README.md](README.md) §3, the bonus).
+  - *That forcing adds nothing where the model thinks.* +1.0 (−6.7 to 9.1) is a failure to find a difference, not an equivalence test.
+  - *That VOC is highest where uncertainty is lowest.* Neither was measured.
+  - *That an escape is progress.* It can be a new search that also fails.
+- **Confidence-based triggers may miss these states, but no one has shown that they do.**
+  - HRBench uses single-turn benchmarks. One case note there is headed "Confident wrong answers": on AIME, an entropy-based re-think trigger fired, but "too late—after the model has already committed to a wrong approach". The paper leaves agentic switching "unexplored".
+  - CogRouter has the agent pick its own thinking level, trained on a task-success × format reward.
+    - Action confidence only splits a successful trajectory's credit across levels, for a fixed action. Failed trajectories get no such reweighting.
+    - In its ablation, applying the reweighting to failed trajectories too made the model collapse to the shallowest level (83.1%) "to evade 'confident mistakes'".
+    - It never tests loops.
+- **What a useful trigger could read.** A failure signal in the history, such as "my last call returned the same result as before", is motivated by the table above. Its benefit over whole tasks is untested.
+  - A harness sees such signals, so a controller outside the model could decide when to think.
   - A Kaggle agent can't force a thought at runtime (it has no reply prefix and no callbacks), so there the trigger would have to live in the weights.
 
 ## 6. What is specific to tool calls and code
 
-- **The environment echoes.** Each cycle adds two identical pieces to the context, the call and its identical result, and nothing outside disturbs them. In free text, only the model's own words repeat.
-- **Calls are short, rigid strings.** Copying a whole call is cheap and always gives valid syntax.
-- **The worst results are the emptiest.** A grep that exits 1 with no output, or an `ok` with empty output, gives the copy cue a clean match and gives the model almost nothing to reason from. Sethi et al. found that an `ok` status with an empty payload produced 45% fabricated answers, against 0% with an explicit error.
+- **The environment echoes.** Each cycle adds two identical pieces to the context, the call and its identical result. In free text, only the model's own words repeat.
+- **Calls are short, rigid strings.** Copying a whole call is cheap and usually gives valid syntax. Malformed calls can repeat too: the replay's `malformed` class.
+- **Empty results say the least.** A grep that exits 1 with no output is scoped negative evidence: this pattern isn't in these files.
+  - A first such search can be good exploration; repeating it unchanged adds little.
+  - An `ok` with empty output is more ambiguous: `grep … | head` exits 0 whatever grep found.
+- **Interpretable failures, in a neighbouring study.** Sethi et al. study a different failure: final answers that assert values a tool didn't return.
+  - Under their deployment prompt, dishonest answers were 0% when the tool returned `status: error` (HTTP 500, timeout), and up to 45.3% when it returned `status: ok` with an unusable payload.
+  - That 45.3% is the redacted-permission case. An empty result gave 8.1%.
+  - The lesson is that interpretable failure signals mislead less than ambiguous ones, not a rate for our greps.
+  - Explicit errors can still loop: see `fastapi_12942`'s control run (§2).
 - **Contexts grow.** The repeated block grows while the task statement recedes. Compaction cuts both ways: it deletes the copies (a natural dedup) and the evidence of failure. 44% of chains of bad calls re-send a call that compaction had hidden.
+- **Not every loop is a search loop.** The main track's thinking-on `budgetfit_contract` agent ends 21 of its 179 task runs in 21–65 identical `submit_patch` calls, while its thoughts say "I'll stop." Inside those runs, 77–79% of the thoughts repeat the one before word for word.
+  - `submit_patch` is free, and a session ends only when the model answers without a tool call. This prompt, unlike `budgetfit`'s, never says how to end.
+  - So it looks like a protocol loop. An ablation of that one prompt line would confirm it ([the main-track analysis](../../Gemma4_kaggle_repo/agentic_workflow/README.md#result-2026-10-13-a-tie-keep-a)).
+  - Real thoughts can coexist with tool loops. Count search loops, malformed-call loops, termination loops and repetitive thoughts separately.
 
-## 7. One model for all of it
+## 7. One stylised model
 
-This is a stylised model, not a fitted one:
+An organising hypothesis, not a fitted or identified model:
 
 $$P(a_t = c \mid h_t) \;\propto\; \exp\!\Big(\tfrac{1}{T}\big[\, s(c) + \lambda\, n_t(c) + \mu\, m_t(c) \,\big]\Big)$$
 
@@ -155,33 +250,84 @@ $$P(a_t = c \mid h_t) \;\propto\; \exp\!\Big(\tfrac{1}{T}\big[\, s(c) + \lambda\
 - $n_t(c)$: copies of $c$ already in the context.
 - $m_t(c)$: 1 when the last result matches what came before $c$ the previous time, otherwise 0.
 - $\lambda$, $\mu$: how strongly the copies and the cue pull.
-- $T$: the sampling temperature.
+- $T$: the sampling temperature. Applying it to a whole call's score is a simplification, since the sampler acts per token (§3).
 
-Each lever we tested changes one part of it. The numbers are one step ahead, at 3rd-or-later copies (gate1.md §2–§4):
+Each lever we tested is meant to change one part of it, and changes more. The numbers are one step ahead, at 3rd-or-later copies (gate1.md §2–§4):
 
-| Lever | What it changes | p(copy) |
-|---|---|---|
-| Copies deleted (dedup) | fewer copies, $n$ | 0.94 → 0.14 |
-| Empty thought | breaks the result-to-call cue, $m$ | 0.95 → 0.50 (40 states) |
-| Note; hindsight hint | change the last result, $m$, and restate it | 0.94 → 0.49; 0.45 |
-| T = 1 instead of 0.2 | softens every term fivefold | 0.94 → 0.73 |
-| Forced thought (T-open) | rewrites the context the terms are computed on | 0.94 → 0.12 (escape 70%) |
+| Lever | Meant to change | Also changes | p(copy) |
+|---|---|---|---|
+| Copies deleted (dedup) | $n$ | context length and positions | 0.94 → 0.14 |
+| Empty thought | $m$ | the thinking-mode marker | 0.95 → 0.50 (40 states) |
+| Note; hindsight hint | $m$ | what the result says, plus an instruction | 0.94 → 0.49; 0.45 |
+| T = 1 instead of 0.2 | every weight, divided by 5 | nothing else, but the value is approximate (§3) | 0.94 → 0.73 |
+| Forced thought (T-open) | the context the terms are computed on | the prompt's mode, the decoding constraints, and the computation available | 0.94 → 0.12 (escape 70%) |
 
-- **What the model has no term for:** information gain, and which call produced which result. That gap is where new information would act: an informative empty result, file locations, or a restart that keeps the earlier diff.
-- **The model reproduces the shape of the data:**
-  - the large jump at the first repeat (§1);
+- The table organises the levers; it doesn't isolate one term per lever.
+- **What the model has no term for:** information gain, and which call produced which result.
+  - That is a choice made in writing the model, not evidence that Gemma represents neither.
+  - In this picture, new information would act there: an informative empty result, file locations, or a restart that keeps the earlier diff.
+- **What it is consistent with,** without being fitted to it:
+  - the large jump in continuation at the first repeat (§1);
   - run length's sensitivity to $q$;
   - fragmentation under the empty thought;
-  - why only deleting the copies or forcing a thought brings p(copy) near zero.
+  - why deleting the copies or forcing a thought brings p(copy) furthest down.
 
 ## 8. What is established and what is ours
 
-- **Established elsewhere** (text generation, or other agents): self-reinforcement and its saturation; degeneration at low temperature; compounding errors in imitation; confidence-based triggers failing on confident mistakes.
-- **Measured in our data:** the lock-in curve; the split between in-context reinforcement and temperature; the thinking trigger's failure (T-open); the onset at calls that can't teach anything.
+- **Established elsewhere** (text generation, or other agents):
+  - in text, repetition in a constructed input raises the chance of more repetition, up to a ceiling (Holtzman et al.; Xu et al.);
+  - maximization-based decoding degenerates into repetition (Holtzman et al.), and reasoning models loop most at low temperature (Pipis et al.);
+  - imitation's errors can compound quadratically with the horizon, on some problems (Ross et al.);
+  - models condition on their own past errors (Sinha et al.) and imitate their own past responses (Wan et al.);
+  - an entropy trigger can fail on confident errors, in one single-turn case (HRBench).
+- **Measured in our data:**
+  - persistence rises sharply with the observed run length (§1);
+  - at the same replay states, T = 0.2 against T = 1 changes the recorded copy's probability a lot, approximately (§3);
+  - where the model skipped thinking, a forced thought raises one-step escape by 47 points (33 to 61) (§5);
+  - the always-block template's mixed effects over whole tasks, with resolution unchanged (§1);
+  - loops start at empty searches (§4);
+  - termination loops in a thinking-on agent (§6).
 - **Fits our data, untested:**
-  - the repeated result as the copy cue (§2's tests would check it);
-  - the A/B cycle as a copied pattern;
+  - that copies cause further copies in our setting (round 2's G1);
+  - the repeated result as the copy cue, against format conditioning (G2);
+  - the A/B alternation as a copied pattern;
   - conversational inertia behind the drift of the self-written empty thought (the compaction test in loop_illustration.html, open question 2).
+- **Not measured yet:**
+  - what escapes lead to;
+  - any lever's benefit over whole tasks;
+  - whether the model's thinking trigger tracks the benefit (§5).
+- **The "about 2 tasks" estimate** ([../gate1/README.md](../gate1/README.md), "Spread and ceiling") comes from rescues across runs. 6 of 23 loop failures were solved by at least one of 9 heterogeneous runs.
+  - It is not an upper bound on what a new intervention could solve.
+  - An escape can also still end in a wrong patch or a timeout.
+
+## 9. What loops mean for rollout data
+
+*Status: an argument, with a cheap test planned (round 2's bonus, [README.md](README.md) §3). No training has been run.*
+
+- **The argument.** Failed rollouts need not be discarded.
+  - Distinct failures with interpretable, locally attributable feedback can supply corrective supervision, even without task success.
+  - Repeated failures that add no new evidence instead concentrate the rollout budget on redundant states, where a self-teacher may agree with the same ineffective action.
+  - So measure feedback quality and corrective teacher disagreement, rather than treating all failed rollouts alike.
+  - Whether these differences improve post-training is untested.
+- **What our data shows so far:**
+  - redundancy is large: stale repeats are 32% of the control arm's dev calls and 54% of its rich calls (§1);
+  - explicit feedback moves the action: on the same 47 states, the hindsight hint takes the 3rd-or-later copy from 0.94 to 0.45;
+  - yet the averaged signal is weak. T-hint's KL on the failure tokens is 0.020 nats, and its mean log-ratio on the student's tokens −0.010. T-think's failure/routine KL ratio is 0.51 (gate1.md §1). Failures plus a self-teacher don't guarantee strong, well-aimed supervision.
+- **Qualifications:**
+  - Penalising every failed search would discourage exploration. Target repeats made after the evidence was already in the context.
+  - Plain SFT on failed actions reinforces them. Self-distillation can correct them only where the feedback-conditioned teacher moves mass to better actions.
+  - Under forward KL, the gradient on the student's logits is $p_S - p_T$, so a large KL alone doesn't show that the correction points the right way.
+  - Feedback should be attributable to the local state and action. A privileged hint that relies on information unavailable at deployment may not transfer.
+  - Keep the evidence of failure through compaction. Keep failure prefixes with a diagnosis or a corrected continuation, not every copy.
+- **Gate 1's top-20 KL is not a lower bound on the full KL.** The floor for missing student tokens lowers the kept terms, but the dropped tail terms can be negative.
+  - Take one kept token with mass 0.9 under the teacher and 0.8 under the student, and tails of 0.1 and 0.2.
+  - The kept term is $0.9 \ln(0.9/0.8) \approx 0.106$ and the tail's is $0.1 \ln(0.1/0.2) \approx -0.069$, so the full KL is about 0.037.
+  - Read the gate's KLs as approximate.
+- **Related methods:**
+  - HERO turns each next observation into a turn-level diagnosis and learns from failed trajectories too, for instance to avoid redundant API calls.
+  - SDPO distils the feedback-conditioned model's predictions back into the policy, with dense, logit-level credit.
+  - OPSD matches the student to a teacher with privileged context, by per-token forward KL on the student's own rollouts.
+  - They motivate the argument. None of our work shows that distilling the measured differences helps the student.
 
 ## References
 
@@ -192,20 +338,31 @@ Each lever we tested changes one part of it. The numbers are one step ahead, at 
 - Ross, S., Gordon, G. J. & Bagnell, J. A. *A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning.* AISTATS 2011. Full text not available through your institution. Open copy: https://arxiv.org/abs/1011.0686
 - Xie, S. M., Raghunathan, A., Liang, P. & Ma, T. *An Explanation of In-context Learning as Implicit Bayesian Inference.* ICLR 2022. Full text not available through your institution. Open copy: https://arxiv.org/abs/2111.02080
 
-**Also cited** (details and links in [literature.md](literature.md) §4):
+**Also cited** (details and links in [literature.md](literature.md) §4; the versions read on 2026-10-13):
 - Holtzman et al. 2020 (1904.09751);
 - Xu et al. 2022 (2206.02369);
 - Olsson et al. 2022 (2209.11895);
-- Pipis et al. 2026 (2512.12895);
-- Sinha et al. 2026 (2509.09677);
-- Wan et al. 2026 (2602.03664);
-- Liu et al. 2026 (2610.02769);
-- Sethi et al. 2026 (2609.14758);
-- HRBench, Ning et al. 2026 (2605.28398);
-- CogRouter, Yang et al. 2026 (2602.12662).
-
+- Pipis et al., ICML 2026 (2512.12895v3);
+- Sinha et al., ICLR 2026 (2509.09677v3);
+- Wan et al., ICML 2026 (2602.03664v3);
+- Liu, J. et al. 2026 (2610.02769v1);
+- Sethi et al. 2026 (2609.14758v1), an anonymised workshop-format preprint;
+- HRBench, Ning et al. 2026 (2605.28398v1);
+- CogRouter, Yang et al. 2026 (2602.12662v1);
+- HERO, Liu, H. et al. 2026 (2606.11559v1); SDPO, Hübotter et al. 2026 (2601.20802v2); OPSD, Zhao et al. 2026 (2601.18734v3);
+- Google, *Gemma 4 Prompt Formatting* (updated 2026-06-03) and the *Gemma 4 model card* (updated 2026-07-30);
+- the Hugging Face PRs google/gemma-4-31B-it #147 and google/gemma-4-26B-A4B-it #67, both open, from one community author. #147 reports no measurements of its own; #67's are on the 26B model.
 
 ## Review Comments,  from GPT 6.1 Sol.
+
+> **Status (2026-10-13):** folded into sections 1–9 above, after checks against the local audit copies, the code and the primary texts. Its ablation plan (its section 10) is round 2 in [README.md](README.md) §3. It stays here as the record. What the checks found:
+> - **Numbers:** all reproduced. That covers its section 2's paired intervals (within resampling noise), the always-block table, the 75 seeds, and the write-like sensitivity check (10 write-like states).
+> - **Code readings, math and citations:** confirmed, with four refinements:
+>   - Google's formatting page says to "consider adding" an empty thinking token, for edge cases in the larger models. It doesn't recommend it in general.
+>   - PR #147 is an open community PR. Its measurements come from the 26B model (#67).
+>   - HRBench's "Confident wrong answers" is one appendix case note, in which the entropy trigger did fire, too late.
+>   - Pipis et al.'s 30% against 4% is one example pair, at greedy decoding.
+> - **One argument refined:** "forced thinking adds about 47 points in skipped states and about one point in states where a thought already occurred" compares forcing with the model's own choice. So it doesn't show the trigger carries information about the benefit, either. Both readings need the escape rate without a thought, at the states where the model thought (section 5 above).
 
 *Review recorded from the October 13, 2026 discussion. These comments preserve the original document above and distinguish results, interpretations, corrections, and proposed work. The ablation plan below is the latest evaluated proposal and supersedes the earlier broader suggestions. Appending these comments does not implement experiments, authorize training, or submit jobs.*
 

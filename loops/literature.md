@@ -206,10 +206,10 @@ Yes, in every agent domain we checked.
 |---|---|---|
 | Copies reinforce themselves | Holtzman Fig. 4 ("a positive feedback loop"); Xu (the chance of a repeat rises with the number of copies, then saturates); Pipis (the model "becomes increasingly confident… a catalyst" ✓); repetition neurons; next-token entropy falls cycle by cycle (Mahaut & Franzon) | lock-in 83–94% after 2 copies; p(copy) 0.94 at 3rd+ copies |
 | Conditioning on one's own context | Sinha; Wan; Gumaan (the call's surface form is 83% of the effect ✓); Verma (33–68% near-identical retries when the model sees its own failed program); Laban | dedup: 0.94 → 0.14; the format slip: 6% → 82% |
-| Uninformative results | ReAct (non-informative search, 23% of errors); Otani ✓; OpenCUA; SWE-agent replaces empty output with "Your command ran successfully and did not produce any output"; an `ok` status with an empty payload gives 45.3% fabricated answers vs 0% for `error` (Sethi) | loops start at an empty `grep`/`find`; 270 of 580 repeated `run_command` calls got nothing |
+| Uninformative results | ReAct (non-informative search, 23% of errors); Otani ✓; OpenCUA; SWE-agent replaces empty output with "Your command ran successfully and did not produce any output"; under Sethi's deployment prompt, `status: error` gives 0% dishonest answers and `status: ok` with an unusable payload up to 45.3% (redacted permissions; an empty result 8.1%) | loops start at an empty `grep`/`find`; 270 of 580 repeated `run_command` calls got nothing |
 | Lost context | WebVoyager's clipping; KV compaction (duplicate searches 11.7% → 21.3% ✓); summaries "mask failure signals" (Complexity Trap); summaries "re-dump the same ruled-out-names search log" (Self-Compacting) | 44% of chains re-send a call compaction hid |
 | Actions not linked to outcomes | Liu: shuffling past actions costs only 2.55 points | 91% of stale repeats got exactly their earlier copy's result |
-| Errors in learning and risk aversion | Pipis: an easy cyclic action keeps its probability when progress is hard to learn; distilled students loop more than their teachers (30% vs 4%) | – |
+| Errors in learning and risk aversion | Pipis: an easy cyclic action keeps its probability when progress is hard to learn; distilled students can loop more than their teachers (30% vs 4% in one example pair, at greedy decoding) | – |
 | Mode and template | NetConfArena; Yuan; Google's "ghost" thought channels with thinking off; HF PR #67; leakage between modes (Demystifying Hybrid Thinking) | 45% vs 7% stale; the model writes the empty thought itself at 82% of calls 1–5 and ~35–45% after call 10 |
 | Low temperature | see [Temperature](#temperature) | – |
 | Task difficulty (the loop as a symptom) | SWE-smith ✓; search loops track difficulty, at 34% / 50% / 68% of easy / medium / hard tasks (Shu ✓); flawed reasoning "drive[s] agents into persistent loop anomalies" (Liu 2509.13941) | the ceiling: about 2 of 70 tasks |
@@ -307,7 +307,7 @@ Yes, in every agent domain we checked.
 
 | Claim | Verdict | Closest works | What stays ours | Wording to use |
 |---|---|---|---|---|
-| (a) Confidence gates self-directed thinking or help-seeking | **Partly taken.** The idea and its token-level mechanism are known; the agent-level measurement is open. | Xu (higher-probability sentences self-reinforce more; "the model is confident"); Pipis (confidence grows in a loop); CogRouter (depth trained to "maximize the confidence of the resulting action"); HRBench (entropy gates miss "confident wrong answers"); Ambig-SWE; Caddie (a fixed-step critic beat agent-called critics, 25.94% vs 19.06%) | The model's own thinking switch shuts off inside loops: a real thought at 72% of 2nd copies, 23% of 3rd+, 6% of malformed calls. Where it skipped the thought its call was stale 89% of the time; where it thought, it escaped 62%. The advisor was the next call after a bad call 1.1% of the time. No paper measures this. | "Self-directed thinking switches off where it is needed. A router trained on action confidence (CogRouter, RACE) would learn the same." |
+| (a) Confidence gates self-directed thinking or help-seeking | **Partly taken.** The idea and its token-level mechanism are known; the agent-level measurement is open. | Xu (higher-probability sentences self-reinforce more; "the model is confident"); Pipis (confidence grows in a loop); CogRouter (confidence splits a successful trajectory's credit across depths; its abstract's "key insight" is that depth "should maximize the confidence of the resulting action"); HRBench (one case note, "Confident wrong answers": an entropy trigger fired too late); Ambig-SWE; Caddie (a fixed-step critic beat agent-called critics, 25.94% vs 19.06%) | The model's own thinking switch shuts off inside loops: a real thought at 72% of 2nd copies, 23% of 3rd+, 6% of malformed calls. Where it skipped the thought its call was stale 89% of the time; where it thought, it escaped 62%. The advisor was the next call after a bad call 1.1% of the time. No paper measures this. | "Self-directed thinking switches off where it is needed." Whether a confidence-shaped router (CogRouter, RACE) would learn the same is untested: CogRouter never tests loops, and gives failed trajectories no confidence reweighting. |
 | (b) The empty thought changes repetition and loops | **Partly taken** (the edit); **open** (its effect on loops) | Google's docs ("consider adding an empty thinking token"); HF PR #147/#67, the same template edit, measuring stray thoughts and empty replies; Demystifying Hybrid Thinking; Qwen3's template (the block is always present); Tsui ("Wait", a few-token prefix with a large effect) | One step ahead, the block halves p(copy), yet 80% of the sampled calls stay stale. The model's own block drifts from 82% to 35–45%. The whole-task effect is running now. | "The thinking-off template leaves a gap after tool responses." Cite the PR. |
 | (c) Editing the context breaks loops better than thinking | **Partly taken** | Gumaan (describing the failure: −76%; an instruction: no effect; a clean restart: worst); Liu (labels and notes); Wan (clipping beats summaries); Sinha (a window helps, and thinking fixes self-conditioning); Verma (blind resampling beats reflection) | The head-to-head at the same states, at 31B: dedup 0.14, note 0.49, block 0.50, thinking 0.80 | Reconcile with Gumaan: our dedup keeps the latest copy, so it is no clean restart. |
 | (d) Probability or KL shifts overstate the change in sampled behaviour | **Partly taken** | Mismatch Matters (median KL 0.0004 nats inside loops; students "exploit repetitive loops" ✓); the KL Agreement Trap; Tool-Call Drift ("Probability mass makes this compression appear safe"); OPSD (style tokens dominate the KL); Gumaan (the probe vs the rollouts); e-CUSUM (log-probability is "nearly silent during confident repetition") | For tool-call loops: p(copy) halves, yet 80% of calls stay stale. The model's own thinking as teacher puts less KL on failure tokens than on routine ones (0.51). On the 292 states where the student went straight to the call, C-none's KL ratio is 0.96 per token but 3.77 per call. | "Score the class of the sampled call, not the probability of the student's call." |
@@ -367,7 +367,7 @@ All of them exist, and every ID is right.
 | Work | ID · dates | What it shows | Setting | Overlap with us | Read |
 |---|---|---|---|---|---|
 | Gumaan, *Feedback That Backfires: Why Small Language Model Agents Repeat the Call They Just Watched Fail* | 2608.23651 · 2026-08-24 | appending a failed call makes it likelier (p over 4 candidates 0.06 → 0.54); its surface form is 83% of the effect; describing the failure removes 76%; "do not repeat" does nothing; clean restart is the worst harness (repeats 31% → 80%); success doesn't follow the repeats | 6 models, 135M–1.7B; ToolShed and MBPP; greedy rollouts of Qwen2.5-0.5B on 24 tasks | **closest to (c), (e), (f)** | full ✓ |
-| Liu et al., *When History Fails to Become Experience: Action Calibration in Language Agents* | 2610.02769 · 2026-10-02 | shuffling past actions costs only 2.55 points; p(3rd identical action) on 1,815 histories is 36.9% pooled (Qwen3-8B 51.4%, Qwen3-32B 18.9%, GPT-5.6-Sol 8.7%); outcome labels → 32.2%, experience notes → 21.4%, with no gain in success | ALFWorld, ScienceWorld, WebShop, AppWorld; 5 models | **our probe's design**; (c), (e) | secs ✓ |
+| Liu et al., *When History Fails to Become Experience: Action Calibration in Language Agents* | 2610.02769 · 2026-10-02 | shuffling past actions costs only 2.55 points; p(3rd identical action) on 1,815 histories is 36.9% pooled (Qwen3-8B 51.4%, Qwen3-32B 18.9%, GPT-5.6-Sol 8.7%); outcome labels → 32.2%, experience notes → 21.4%, on histories screened so their feedback doesn't support a repeat. In full rollouts, outcome labels ("Causal Transition") raise success (46.39% → 48.25%), and experience notes lower it (45.01%) | ALFWorld, ScienceWorld, WebShop, AppWorld; 5 models | **our probe's design**; (c), (e) | secs ✓ |
 | Wan et al., *Mitigating Conversational Inertia in Multi-Turn Agents* (ICML 2026) | 2602.03664 · 2026-02-03 → v3 2026-05-18 | agents "mimic their own previous responses as few-shot examples"; diagonal attention grows with context; clipping beats summaries (Qwen3-8B 54.4 → 68.9); Qwen3-8B repeats its last action 22–28% of the time | Qwen3-8B with thinking off, Llama-3.1-8B, GPT-4o-mini; T = 0.8 | (c), (f) | secs ✓ |
 | Sinha et al., *The Illusion of Diminishing Returns* (ICLR 2026) | 2509.09677 · 2025-09-11 → v3 2026-03-13 | errors in context breed errors; scale doesn't help; Qwen3 thinking models don't self-condition; CoT prompting doesn't help; a shorter window helps; ~20–48% of agent failures in AgentErrorBench look similar | synthetic execution; Qwen3 4–32B, Gemma 3 4–27B | (f) mechanism; (c) | full |
 | Verma, *Try Again, Don't Look Back* | 2607.26117 · 2026-07-28 | seeing its own failed program makes 33–68% of retries near-identical, vs 2–14% blind; reflection lowers that by about a third; Q4 behaves as FP16 | Qwen2.5-Coder 1.5–7B, DeepSeek-Coder; MBPP+; T = 0.8 | (c); quantization isn't the cause | full |
@@ -433,8 +433,8 @@ All of them exist, and every ID is right.
 
 | Work | ID · dates | What it shows | Overlap with us | Read |
 |---|---|---|---|---|
-| Yang et al., *CogRouter* | 2602.12662 · 2026-02-13 | the depth that would "maximize the confidence of the resulting action"; the instinctive level rises from 48.5% to 94.8% of steps | (a): rewards a confident copy | main text |
-| Ning et al., *HRBench* | 2605.28398 · 2026-05-27 | entropy-gated switching fails on "Confident wrong answers"; agentic switching "remain[s] unexplored" | (a), single-turn | most |
+| Yang et al., *CogRouter* | 2602.12662 · 2026-02-13 | the agent picks its own depth, trained on a task-success × format reward; action confidence only splits a successful trajectory's credit across depths for a fixed action (the abstract: depth "should maximize the confidence of the resulting action"); failed trajectories get no reweighting; loops are never tested; the instinctive level rises from 48.5% to 94.8% of steps | (a): a contrast; whether it would skip loop states is untested | §3.4 ✓ |
+| Ning et al., *HRBench* | 2605.28398 · 2026-05-27 | one appendix case note, "Confident wrong answers": on AIME the entropy trigger fired, but too late to correct a committed error; agentic switching "remain[s] unexplored" | (a), single-turn | most; App. C ✓ |
 | Cheng et al., *When Should Agents Think? (RACE)* | 2610.12061 · 2026-10-08 | skips reasoning where removing it barely lowers the reference action's likelihood | (a) | §2–3 |
 | Zhang et al., *Agentic Uncertainty Quantification* | 2601.15703 · 2026-01-22 | reflect only below 0.85 verbalised confidence; warns of "Delusional Confirmation" | (a) design | secs |
 | Li et al., *Same Signal, Opposite Meaning* | 2605.06908 · 2026-05-07 | the entropy–benefit correlation flips sign across environments; "Wrong-direction gates can therefore worsen performance by precisely selecting harmful states" | (a) | secs |
@@ -472,7 +472,7 @@ All of them exist, and every ID is right.
 
 | Work | ID · dates | What it shows | Read |
 |---|---|---|---|
-| Sethi et al., *Fabrication After Tool Failure* | 2609.14758 · 2026-09-13 | an `ok` status with an empty or stale payload gives 45.3% dishonest answers, vs 0% with `error` | abs |
+| Sethi et al., *Fabrication After Tool Failure* | 2609.14758 · 2026-09-13 | dishonest answers under the deployment prompt: 0% with `status: error`, up to 45.3% with `status: ok` and an unusable payload (Table 3: redacted permission 45.3%, stale 18.6%, empty 8.1%) | Table 3 ✓ |
 | Zhao et al., *PRISM* (EMNLP 2026) | 2609.05736 · 2026-09-04 → v2 2026-09-09 | treats "silent correction, rewriting malformed arguments before execution" as a legitimate pattern; what later calls copy is unmeasured | §4.3 |
 | An agent-runtime bug study | 2607.15684 · 2026-07-17 | "many AR bugs manifest as silent errors" | abs |
 
@@ -506,7 +506,7 @@ All of them exist, and every ID is right.
 3. **Sinha et al. 2026:** self-conditioning, and Qwen3's thinking removing it. Our contrast: thinking doesn't break lock-in.
 4. **Wan et al. 2026:** conversational inertia, and clipping vs summaries.
 5. **Gumaan 2026:** a failed call's surface form, the levers on it, and clean restart as the worst harness. The closest work for (c), (e) and (f).
-6. **Liu et al. 2026 (2610.02769):** p(3rd identical action), outcome labels, and no gain in success.
+6. **Liu et al. 2026 (2610.02769):** p(3rd identical action), and its two fixes: outcome labels raise success, experience notes cut repeats but lower it.
 7. **Yang et al. 2024, SWE-agent:** interface guards, and what autosubmit leads to.
 8. **Pan et al. 2025, SWE-Gym:** the "Stuck in Loop" metric, to report on our runs.
 9. **Yang et al. 2025, SWE-smith:** prevalence, and repeats as "symptoms". Prior work for (e).
@@ -519,7 +519,7 @@ All of them exist, and every ID is right.
 16. **Qwen Team 2025, Qwen3 Technical Report:** the empty think block in non-thinking mode.
 17. **HF PR google/gemma-4-31B-it #147:** the same template edit as our always-block run.
 18. **Yu et al. 2026, Mismatch Matters:** KL is blind inside loops. Prior work for (d).
-19. **Yang et al. 2026, CogRouter:** a router built to maximise action confidence. Contrast for (a).
+19. **Yang et al. 2026, CogRouter:** an agent that picks its own thinking depth, with action confidence shaping credit on successful trajectories. Contrast for (a).
 20. **The production loop detectors:** OpenHands' StuckDetector and Gemini CLI's loop detection service.
 
 **Add these if the word count allows (5):**
@@ -583,9 +583,9 @@ All of them exist, and every ID is right.
   - If T-open doesn't escape, (c) holds, as Gumaan's and Verma's results would predict.
 
 **The always-block run**
-- **It is the HF PR #147 edit**, and Google's docs advise it too. Cite both. Our contribution is the effect on loops, over whole tasks, at 31B.
+- **It is the HF PR #147 edit**, and Google's docs suggest it for edge cases ("consider adding an empty thinking token"). Cite both. Our contribution is the effect on loops, over whole tasks, at 31B.
 - **The prediction from the literature:**
-  - Probe effects shrink in closed loops: Gumaan's log-prob effect nearly vanishes, yet repeats fall only from 31% to 16%; Liu cuts repeats with no gain in success.
+  - Probe effects shrink in closed loops: Gumaan's log-prob effect nearly vanishes, yet repeats fall only from 31% to 16%; Liu's experience notes cut repeats the most, yet lower success.
   - So expect fewer copy starts, partial lock-in, and a resolve rate within noise.
 - **Add three metrics to `loop_report.py`:**
   - SWE-Gym's "3 identical in a row" share and SWE-smith's share of runs of 10+, so judges can compare with published rates;

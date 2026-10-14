@@ -64,7 +64,7 @@ From the v30 traces, by `trigger_replay.py`'s rules. Each arm has one run.
   - 3 with the task.
 - **Spread and ceiling.**
   - **Spread:** the stale repeats fall in 45 tasks, and the 10 worst hold 59%. Without the 5 worst, the next call after a bad one is still bad 70% of the time (`on`: 19%).
-  - **Ceiling:** of the 23 failures with at least 20% stale calls, only 6 were solved by any of 9 other runs (v28–v30). So removing every loop would gain about 2 tasks.
+  - **Ceiling:** of the 23 failures with at least 20% stale calls, only 6 were solved by any of 9 other runs (v28–v30). So removing every loop would gain about 2 tasks. That is an observed rescue estimate across runs, not an upper bound: a new intervention could solve tasks none of those runs did.
   - Loops are where thinking-off fails visibly, and where its behaviour differs most from thinking on.
 - **Prior work agrees.**
   - Repetition reinforces itself (Holtzman et al., ICLR 2020; Xu et al., NeurIPS 2022).
@@ -116,7 +116,7 @@ About 650 states on one run. The picks spread over tasks round-robin, with a fix
 
 **Per token:**
 - the log-ratio log p_T − log p_S of the student's own token (negative: the teacher disagrees with what the student did);
-- the forward KL over the teacher's top 20 tokens. A token missing from the student's top 20 gets the student's lowest listed logprob, so the KL is understated.
+- the forward KL over the teacher's top 20 tokens. A token missing from the student's top 20 gets the student's lowest listed logprob, which understates that token's term. The dropped tail can add a negative term, so the sum is not a bound either way.
 
 **Per call:** the probability of the student's whole call (`<|tool_call>` to `<tool_call|>`):
 - at T=1, raw;
@@ -199,7 +199,7 @@ All estimates are for about 650 states of about 10k prompt tokens each.
 - **One sample.** T-think's own call and the own calls are one sample per state; class-level rates rest on ~30–200 states each.
 - **Seeds shared within a task (the first run).** Until 2026-10-12 the seed kept only 4 bytes of the state's key, so the first run's 581 states had 75 seeds, about two per task. Its T-think and own samples share random numbers within a task: their rates aren't biased, but the states are less independent than the counts suggest. Since then each state has its own seed, T-open's included; rows already written keep theirs.
 - **Real-model tests.** The first run's prep passed every check with the real tokenizer and template. block and own are tested on the real tokenizer and the first run's prompts with a fake vLLM, not yet on a GPU.
-- **The KL is a lower bound.** It is over the teacher's top 20 tokens only, so it understates. The probabilities at T=1 with top_p slightly overstate the kept tokens' share.
+- **The KL is approximate, not a lower bound** (corrected 2026-10-13). It covers the teacher's top 20 tokens only. The floor for missing student tokens lowers the kept terms, but the dropped tail's terms can be negative, so it can over- or understate the full KL ([../loops/loops_reason_10_13.md](../loops/loops_reason_10_13.md) §9). The probabilities come from the top 20 while the run samples from the top 64, so at T=1 with top_p they can overstate the kept tokens' share; that error isn't bounded.
 - **The `first` class:** the off prompt already ends with the prefilled empty thought, which the thinking-on edit removes.
 
 ## Files

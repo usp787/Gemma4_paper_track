@@ -1,16 +1,17 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
-**The working claim: a stuck agent is a confident agent.**
-- At a third or later identical copy, the student gives the copy p = 0.94.
-- Allowed to think, the same weights write a real thought at 72% of second copies, but only 23% of third-or-later copies and 6% of malformed calls. Where they skip it, their own call is stale 97% of the time.
-- When they do think at a stuck state, they escape 8 times in 14.
-- So the model's own choice of when to think fails exactly where thinking is needed. `v2`'s advisor shows the same pattern: the model calls it before edits, and almost never right after a bad call.
+**The working claim, narrowed after round 1 (2026-10-13): spontaneous thinking often skips the looping states where a forced thought helps.**
+- Where T-think skipped the thought, a forced thought (T-open) escapes 58% of the time, against 11% (114 states in 36 tasks; paired difference +47 points, 95% interval 33 to 61). Where T-think thought, the two escape 62% and 63%.
+- An escape is one step ahead: a call that is neither stale nor malformed, not yet a useful one.
+- The always-block template reshapes loops over whole tasks: the stale share falls 5–6 points and runs fragment. Resolution doesn't move: 37 of 109 in both arms.
+- "A stuck agent is a confident agent" stays an interpretation. The replay measures the probability of the recorded call, not calibrated confidence. `v2`'s advisor fits it: the model calls the advisor before edits, and almost never right after a bad call.
+- Why loops happen, with the math, the caveats and the references: [loops_reason_10_13.md](loops_reason_10_13.md).
 
-Everything comes from [../gate1/README.md](../gate1/README.md) and [../baseline/README.md](../baseline/README.md). This folder adds the two experiments below. The rule-based controller of [../adaptive_inference/](../adaptive_inference/README.md) is left out for now: it needs about 10 L40S-hours, and the main track's evals hold those slots.
+Everything before round 1 comes from [../gate1/README.md](../gate1/README.md) and [../baseline/README.md](../baseline/README.md). Round 1 added the two experiments below; both ran on 2026-10-12. The rule-based controller of [../adaptive_inference/](../adaptive_inference/README.md) is left out for now: it needs about 10 L40S-hours, and the main track's evals hold those slots.
 
 | | 1. The forced thought (T-open) | 2. The always-block run |
 |---|---|---|
@@ -44,6 +45,8 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 - If T-open escapes far more than T-think at the states T-think skipped, the model can fix the loop when made to think; it just doesn't choose to. That is the main claim's test.
 - If T-open escapes about as rarely, the loop survives a real thought too. Then the paper's lever is the context (dedup, a note), not thinking.
 
+**Result (2026-10-12):** the first reading holds: +47 points where T-think skipped the thought. The table and its limits are in [loops_reason_10_13.md](loops_reason_10_13.md) §5.
+
 **One fix it brings:** `seed_of` now gives each state its own seed. The old one kept only 4 bytes of the key, so the first run's 581 states had 75 seeds, about two per task. T-think's and own's samples there share random numbers within a task. That doesn't bias their rates, but their states are less independent than their counts suggest. Rows already written keep their seeds.
 
 ## 2. The always-block run
@@ -76,6 +79,143 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 - `STEPS=report` writes the report again.
 - The header of [submit_loops.sh](submit_loops.sh) has the rest.
 
+## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
+
+Nothing here is built or queued yet.
+
+**Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
+- the lock-in curve can come from survivor selection;
+- no closed-loop arm runs at Google's T = 1;
+- every lever changes meaning, length or mode along with the copy cue.
+
+Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper's claims stay one step ahead unless a whole-task effect is clear.
+
+**The goals, in priority order:**
+
+| | Question | Design | Size | A100-hours (est.) |
+|---|---|---|---|---|
+| A0 | Which failures carry usable feedback? Is the T-open gap a misallocation? | Existing files only (the bonus below) | – | 0 (CPU) |
+| G1 | Do added copies raise p(copy) at a fixed history? | 1, 2 or 4 copies of one call/result block, against a variant control | ~60 histories | 1–2 |
+| G2 | Is the cue the result's surface match, or what it means? | 2 × 2 replay factorial with two anchors, plus one empty-thought context | ~120–160 states | 4–6 |
+| G3 | Does lock-in survive T = 1? Do round 1's closed-loop findings replicate? | `ctrl` and `block` at T = 0.2, `ctrl` at T = 1; two passes each, on v31 | 109 tasks × 6 runs | 9–15 |
+| G4 | (conditional) Does the best feedback rendering help over whole tasks? | G2's winner against its matched control, two passes each | 109 tasks × 4 runs | 6–10 |
+
+- **Compute:** G1–G3 total 14–23 A100-hours. With G4, reruns and scoring fixes, reserve 30–45.
+- **Basis of the estimates:** round 1's measured jobs: control 1 h 19 min and always-block 1 h 28 min for 109 tasks at 4 lanes; T-open 1 h 20 min for 581 states. G1 and G2 generate no thoughts, so they should land at the low end.
+- **The binding constraints:** code, checks, queue and writing time, not GPUs.
+
+### G1. Controlled repetition
+
+- **Histories:** ~60 contexts that end just after the first occurrence of a failing read-only search: exit 1 with no output, or `ok` with no output. They are spread over tasks and picked by the history, whatever the student did next.
+- **Arms:**
+  - the call/result block appears 1, 2 or 4 times in a row at the end;
+  - **variant control:** the same number of added blocks, each a different failing search from the same task with its real result. Length, position and the number of failures match; the call's identity doesn't.
+  - [gate1.py](../gate1/gate1.py)'s `call_blocks` and `dedup` already cut and splice these blocks at the token level.
+- **Measures:**
+  - p(the block's call) at the next step, scored;
+  - 3 sampled continuations per arm: exact copy, any stale call, malformed, escape.
+- **Precedents for the design:**
+  - Holtzman et al. and Xu et al. repeat a phrase or sentence a chosen number of times in a constructed input.
+  - Sinha et al. inject errors into fixed histories at chosen rates.
+  - Liu et al.'s fixed-history probe measures p(3rd identical action).
+- **Reading it:**
+  - A dose effect above the variant control supports context reinforcement in these histories.
+  - A null or mixed effect leaves round 1's persistence standing, but drops the reinforcement-law wording.
+
+### G2. What the result means, against its surface form
+
+| | Neutral text | Faithful interpretation |
+|---|---|---|
+| Repeated results keep matching surface forms | placebo | semantic |
+| Repeated results get varying arbitrary IDs | surface break | both |
+
+- **Anchors:** the untouched original and dedup, scored again in the same environment.
+- **States:** picked by history. The last call repeats an earlier one and got the identical result.
+  - The primary subset holds verified deterministic, read-only searches, with the relevant files unchanged.
+  - States are spread over tasks, with some first-failure states (`after_miss`) as controls.
+  - An `ok` with no output is not automatically a failed search.
+- **Renderings:**
+  - Apply each rendering to every relevant result in the history, the same way each time.
+  - The semantic text is a faithful reading of the result, such as "The search completed and found zero matches for this pattern in these files." It carries no instruction ("change approach").
+  - Call strings stay unchanged. Match the added tokens' lengths and positions across cells.
+  - A changing repeat counter changes both meaning and match, so it stays out of the factorial.
+- **Measures:**
+  - exact copies, valid non-stale calls, malformed calls, and changes of approach;
+  - 3 continuations per arm. They sharpen each state's estimate but add no tasks, so compare in pairs, with task-cluster intervals.
+- **One extra context:** keep the empty thought before every past call, as well as at the end.
+  - If the block works by breaking the match between the result and the call, restoring that match in the history should bring the copy back.
+  - If it works through the thinking mode ([Google's formatting notes](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4); HF PR #147), restoring it shouldn't.
+- **Reading it:**
+  - IDs help: the identical surface form contributes.
+  - Meaning helps beyond neutral text: interpretable feedback contributes.
+  - Both help: report the interaction.
+  - Nothing reliable: narrow the claim rather than sweep wordings.
+
+### G3. Temperature and replication
+
+- **Arms:** `ctrl` (T = 0.2), `block` (T = 0.2) and `ctrl_t1` (T = 1.0; Google's top-p 0.95 and top-k 64). Each gets two passes on the same 109 tasks.
+- **Environment:**
+  - The serving env was rebuilt for v31 on 2026-10-13 (`venvs/vllm_host`), so round 1's v30 runs can't be repeated exactly.
+  - Run all six on v31, and keep round 1 as a separate replicate.
+  - Record, for every run: wheelhouse, serving env, template sha, zip sha, sampling, and budgets.
+- **What it needs:**
+  - a zip that differs from `off_args`'s only in `configs/sampling.yaml` (temperature 1.0);
+  - a third arm in [arms.tsv](arms.tsv) and [submit_loops.sh](submit_loops.sh). The script now refuses arms with different zips.
+- **Measures:**
+  - fragmentation and re-entry of runs;
+  - stale rates, per task and pooled;
+  - malformed calls, source edits, resolved tasks, time and tokens;
+  - loops by type (search, malformed, termination), and what escapes lead to.
+- **Reading it:** the sample targets large behavioural effects. It can't establish a change of 1–2 resolved tasks, and an inconclusive comparison is not equivalence.
+
+### G4. Conditional: feedback over whole tasks
+
+- **When:** only if G2's semantic rendering has a clear, reproducible effect beyond placebo.
+- **How it runs:** the rendering may use only history already observed.
+  - The always-block arm's route, a chat template, can carry it if the template can express the rendering.
+  - Otherwise it needs a harness change, plus smoke checks before full runs.
+- **Measures:** executed-call usefulness, loop re-entry, time and resolution, not only fewer exact copies.
+- If G2 is weak, or integration threatens writing time, drop G4 and keep the paper's claims one step ahead.
+
+### Bonus: what makes a failed rollout useful (CPU only)
+
+[loops_reason_10_13.md](loops_reason_10_13.md) §9 has the argument: distinct failures with interpretable, attributable feedback can teach, while loops spend the rollout budget on redundant states. Round 2 measures it on files that already exist, with no training:
+- **Redundancy:** in round 1's closed-loop runs, the share of failed tasks' calls and output tokens spent on stale repeats. Also the distinct (call, result) states per failed rollout.
+- **Feedback types at failures:**
+  - the types: verified search misses (exit 1, no output); ambiguous empty successes (exit 0, no output, as `grep … | head` gives); explicit errors with a message; repeated non-empty results;
+  - for each, how often a copy follows;
+  - explicit errors loop too: the control run of `fastapi_12942` repeats an `edit_file` 35 times against "No changes to apply. old_string and new_string are identical."
+- **Directed teacher disagreement:**
+  - In Gate 1's score files (T-hint, T-think, T-open, C-none, note): does the teacher lower the stale call's probability at its decision tokens, the tool name and the first content tokens? How concentrated is the change? Split by feedback type.
+  - A large KL alone doesn't show the correction points the right way, and the top-20 approximation applies.
+- **A no-thought baseline for T-open:**
+  - From `score_S.jsonl`, compare the recorded call's probability where T-think thought with where it skipped.
+  - 1 − p(the recorded stale call) is an upper bound on escape without a thought, so it bounds what a thought gains in each group.
+- **Where to run it:** the score files are small (S 13 MB, the others under 1 MB). Copy them and run locally, not on the login node.
+
+**Out of scope for round 2:**
+- localising the mechanism to attention heads;
+- other models. A 12B `ctrl` run on v31 is the cheapest scale check, but any one-step claim would need its own replay states;
+- broad grids over temperature or thinking budget;
+- sweeps over note wordings;
+- a failure-triggered thinking controller;
+- OPSD or LoRA training.
+
+**Schedule:** the deadline is November 12, 2026, 23:59 UTC, from Kaggle's timeline as read on 2026-10-13. The paper is capped at 3,000 words.
+
+| Dates, 2026 | Work |
+|---|---|
+| Oct 14–16 | A0; the code for G1–G3, tested locally against a fake vLLM, as in round 1 |
+| Oct 17–22 | G1–G3 runs and paired analysis |
+| Oct 23–26 | G4, only if G2 warrants it |
+| Oct 27 | Freeze the experiments |
+| Oct 27–Nov 5 | Write the paper; reproducible figures and code |
+| Nov 6–10 | Review, corrections, early submission |
+
+- Delays cut scope, not writing time.
+- Every job stays on one A100, under the 2-h limit. Ask before anything multi-GPU or longer.
+- The user commits and submits.
+
 **What it refuses:**
 - loops jobs already queued (`FORCE=1` overrides);
 - a main-track checkout without `CHAT_TEMPLATE`;
@@ -83,7 +223,9 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 - missing id files, zip, model or venv;
 - more jobs than the `gpu` partition lets us queue.
 
-**Reading it:** trace metrics first, as everywhere in this paper. Look at stale repeats, copy starts, lock-in at k = 2 and runs of 5+. Resolved tasks come second: the ceiling says removing every loop gains about 2 of 70 tasks, and one run varies by ±2.2.
+**Reading it:** trace metrics first, as everywhere in this paper. Look at stale repeats, copy starts, lock-in at k = 2 and runs of 5+. Resolved tasks come second: one run varies by ±2.2. The "about 2 of 70 tasks" that removing every loop would gain is an observed cross-run rescue estimate (6 of 23 loop failures were solved by at least one of 9 other runs), not an upper bound.
+
+**Result (2026-10-12):** the block lowers the stale share and fragments the runs, but more runs start, and resolution is unchanged (dev 25 → 24, rich 12 → 13). The full table is in [loops_reason_10_13.md](loops_reason_10_13.md) §1.
 
 ## Files
 
