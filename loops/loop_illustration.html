@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inside a Tool-Call Loop</title>
+<meta name="description" content="Two worked examples of how a thinking-off coding agent (Gemma 4 31B) gets stuck in tool-call loops, what breaks them one step ahead, and what changes over whole tasks.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Layout: one 680px serif reading column on warm paper; figures widen to 920px and sit on a slightly darker panel. */
+:root {
+  --bg: #FAF9F5;          /* paper */
+  --panel: #F0EEE6;       /* figure and code panels */
+  --ink: #141413;         /* body text */
+  --ink-2: #5E5D59;       /* secondary text */
+  --muted: #6A6862;       /* captions, axes */
+  --line: #E3E0D6;        /* hairlines */
+  --hl: #E4DFD1;          /* token highlight */
+  --link: #A3482A;        /* links */
+  --shadow: rgba(20, 20, 19, 0.14);
+  /* chart marks, validated in both themes */
+  --mark-new: #ABA79B;    /* a new call */
+  --mark-return: #D98E6D; /* a repeat of an earlier call */
+  --mark-copy: #C9592F;   /* a copy of the call just before */
+  --mark-forced: #4A7FC0; /* the forced thought */
+  --mark-own: #6E6B63;    /* the model's own choice, other contexts */
+  --font-body: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+/* The page commits to the light paper look; dark applies only when chosen (the toggle, or a host's data-theme). */
+:root[data-theme="dark"] {
+  --bg: #1C1B1A; --panel: #262624; --ink: #ECEAE2; --ink-2: #B9B6AD; --muted: #97948B; --line: #3A3935;
+  --hl: #3A3833; --link: #EE9472; --shadow: rgba(0, 0, 0, 0.45);
+  --mark-new: #5E5C56; --mark-return: #9A5236; --mark-copy: #D86A42; --mark-forced: #5A8FD6; --mark-own: #8F8C84;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 19px; line-height: 1.62; font-optical-sizing: auto;
+  padding-inline: 16px; padding-block: 0 72px;
+}
+@media (max-width: 600px) { body { font-size: 17.5px; } }
+img, svg { max-width: 100%; }
+[hidden] { display: none !important; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--mark-forced); outline-offset: 3px; border-radius: 3px; }
+code { font-family: var(--font-mono); font-size: 0.82em; background: var(--panel); padding: 0.1em 0.32em; border-radius: 4px; overflow-wrap: anywhere; }
+/* tokens such as <|channel> must show as typed: no programming ligatures */
+code, pre, .tip .m, .calllist .cm { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.theme-btn { margin-left: auto; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 1px 11px; cursor: pointer; }
+.theme-btn:hover { color: var(--ink); border-color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.page { max-width: 920px; margin: 0 auto; }
+.col { max-width: 680px; margin-inline: auto; }
+
+/* masthead */
+.masthead { padding-block: 64px 8px; }
+.eyebrow { font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; }
+h1 { font-family: var(--font-ui); font-weight: 500; font-size: clamp(38px, 6.4vw, 60px); line-height: 1.04; letter-spacing: -0.022em; margin: 18px 0 22px; text-wrap: balance; }
+.dek { font-size: 22px; line-height: 1.45; color: var(--ink-2); margin: 0 0 28px; text-wrap: pretty; }
+@media (max-width: 600px) { .dek { font-size: 19px; } }
+.brief { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-block: 18px 6px; margin: 0 0 8px; }
+.brief h2 { font-family: var(--font-ui); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.brief ul { margin: 0; padding-left: 1.1em; font-size: 17.5px; line-height: 1.55; }
+.brief li { margin-bottom: 0.6em; }
+
+/* body type */
+article h2 { font-family: var(--font-ui); font-weight: 500; font-size: 30px; line-height: 1.15; letter-spacing: -0.012em; margin: 72px 0 16px; text-wrap: balance; }
+article h3 { font-family: var(--font-ui); font-weight: 600; font-size: 19px; line-height: 1.3; margin: 40px 0 8px; text-wrap: balance; }
+article p { margin: 0 0 1em; text-wrap: pretty; }
+article ul, article ol { padding-left: 1.2em; margin: 0 0 1.1em; }
+article li { margin-bottom: 0.45em; }
+.stages { list-style: none; padding: 0; counter-reset: stage; display: grid; gap: 14px; margin: 28px 0; }
+.stages li { counter-increment: stage; display: grid; grid-template-columns: 2.2em 1fr; gap: 4px; margin: 0; }
+.stages li::before { content: counter(stage); font-family: var(--font-ui); font-weight: 500; font-size: 15px; color: var(--muted); padding-top: 0.2em; }
+.stages b { font-family: var(--font-ui); font-weight: 600; }
+.small { font-size: 16px; line-height: 1.55; color: var(--ink-2); }
+
+/* figures */
+figure { margin: 44px auto; max-width: 920px; }
+.panel { background: var(--panel); border-radius: 8px; padding: 22px 24px 18px; }
+@media (max-width: 600px) { .panel { padding: 16px 12px 12px; border-radius: 6px; } }
+.fig-title { font-family: var(--font-ui); font-weight: 600; font-size: 16px; margin: 0 0 4px; }
+.fig-sub { font-family: var(--font-ui); font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
+figcaption { font-family: var(--font-ui); font-size: 14px; line-height: 1.55; color: var(--muted); max-width: 680px; margin: 12px 0 0; }
+figcaption b { color: var(--ink-2); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--font-ui); font-size: 13.5px; color: var(--ink-2); margin: 0 0 12px; padding: 0; list-style: none; }
+.legend li { display: flex; align-items: center; gap: 7px; margin: 0; }
+.sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; flex: none; }
+.sw.k-new { background: var(--mark-new); } .sw.k-return { background: var(--mark-return); } .sw.k-copy { background: var(--mark-copy); }
+.sw.k-forced { background: var(--mark-forced); } .sw.k-own { background: var(--mark-own); }
+.sw.rule-h { height: 3px; width: 16px; background: var(--ink-2); border-radius: 0; }
+.sw.rule-v { width: 2px; height: 14px; background: var(--ink); border-radius: 0; margin-inline: 4px; }
+.strip-head { font-family: var(--font-ui); font-size: 14px; color: var(--ink); margin: 14px 0 2px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.strip-head span { color: var(--muted); }
+.chart { position: relative; width: 100%; min-width: 0; outline-offset: 4px; }
+.chart svg { display: block; overflow: visible; }
+
+/* SVG marks */
+.k-new { fill: var(--mark-new); } .k-return { fill: var(--mark-return); } .k-copy { fill: var(--mark-copy); } .k-bad { fill: var(--ink); }
+.k-forced { fill: var(--mark-forced); } .k-own { fill: var(--mark-own); }
+.bw { fill: var(--ink-2); }
+.comp { stroke: var(--ink); stroke-width: 1.5; }
+.brk { stroke: var(--ink-2); stroke-width: 1; fill: none; }
+.brk-t { fill: var(--ink-2); font-family: var(--font-ui); font-size: 12.5px; }
+.tick { fill: var(--muted); font-family: var(--font-ui); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.mlab { fill: var(--ink-2); font-family: var(--font-ui); font-size: 11.5px; }
+.grid { stroke: var(--line); stroke-width: 1; }
+.base { stroke: var(--muted); stroke-width: 1; }
+.ring { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.whisk { stroke: var(--ink); stroke-width: 1.25; }
+.val { fill: var(--ink); font-family: var(--font-ui); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.glab { fill: var(--ink); font-family: var(--font-ui); font-size: 14px; }
+.gsub { fill: var(--muted); font-family: var(--font-ui); font-size: 12.5px; }
+.rtxt { fill: var(--ink-2); font-family: var(--font-ui); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.hit { fill: transparent; cursor: default; }
+.bar-hot { filter: brightness(1.08); }
+
+/* tooltip */
+.tip { position: fixed; z-index: 20; left: 0; top: 0; pointer-events: none; background: var(--ink); color: var(--bg); font-family: var(--font-ui); font-size: 13px; line-height: 1.45; padding: 9px 11px; border-radius: 7px; max-width: min(380px, calc(100vw - 24px)); box-shadow: 0 6px 22px var(--shadow); }
+.tip .h { font-size: 12px; opacity: 0.75; }
+.tip .v { font-weight: 600; }
+.tip .m { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; margin-top: 2px; }
+
+/* tables */
+.table-wrap { overflow-x: auto; margin: 0; }
+table { border-collapse: collapse; width: 100%; font-family: var(--font-ui); font-size: 15px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+th { font-weight: 500; font-size: 13px; color: var(--muted); text-align: left; border-bottom: 1px solid var(--line); padding: 8px 10px; vertical-align: bottom; }
+td { border-bottom: 1px solid var(--line); padding: 9px 10px; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+td .d { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+td.zero { font-weight: 600; }
+.sq { display: inline-flex; gap: 2px; vertical-align: -1px; margin-right: 6px; }
+.sq i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.sq i.k-new { background: var(--mark-new); } .sq i.k-copy { background: var(--mark-copy); }
+.tbl-prior td:first-child { width: 24%; font-weight: 500; }
+.tbl-prior td:nth-child(2) { width: 26%; }
+.tbl-loop td:first-child { width: 46%; }
+
+/* alternative views */
+details.alt { margin-top: 12px; font-family: var(--font-ui); font-size: 14px; color: var(--ink-2); }
+details.alt summary { cursor: pointer; color: var(--ink-2); width: fit-content; }
+details.alt summary:hover { color: var(--ink); }
+details.alt[open] summary { margin-bottom: 8px; }
+.calllist { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 13.5px; }
+.calllist li { display: grid; grid-template-columns: 6.5em 1fr; gap: 10px; margin: 0; }
+.calllist .ix { color: var(--muted); font-variant-numeric: tabular-nums; }
+.calllist .cm { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); overflow-wrap: anywhere; }
+
+/* token figure */
+pre.tokens { font-family: var(--font-mono); font-size: 13.5px; line-height: 1.75; margin: 0; overflow-x: auto; white-space: pre; color: var(--ink); }
+pre.tokens .add { background: var(--hl); border-radius: 3px; padding: 1px 2px; }
+pre.tokens .lbl { font-family: var(--font-ui); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+pre.tokens .note { color: var(--muted); }
+
+/* thoughts */
+.thought { margin: 28px 0; padding-left: 20px; border-left: 2px solid var(--line); }
+.thought .who { font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+.thought blockquote { margin: 0 0 8px; font-style: italic; color: var(--ink); }
+.thought .then { font-family: var(--font-ui); font-size: 14px; color: var(--ink-2); margin: 0; }
+
+/* why loops happen */
+.status { font-family: var(--font-ui); font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 48px 0 0; }
+.status + h3 { margin-top: 4px; }
+.formula { font-family: var(--font-body); font-size: 21px; line-height: 1.4; text-align: center; white-space: nowrap; overflow-x: auto; background: var(--panel); border-radius: 8px; padding: 20px 16px; margin: 8px 0 18px; }
+.formula i { font-style: italic; }
+@media (max-width: 600px) { .formula { font-size: 17px; text-align: left; } }
+.gloss.vars { grid-template-columns: minmax(0, 5.5em) minmax(0, 1fr); font-size: 16.5px; }
+.gloss.vars dt { font-family: var(--font-body); font-weight: 400; font-style: italic; font-size: 17px; }
+@media (max-width: 600px) { .gloss.vars { grid-template-columns: minmax(0, 5.5em) minmax(0, 1fr); gap: 6px 14px; } .gloss.vars dd { margin-bottom: 0; } }
+
+/* questions and glossary */
+.q { margin: 0 0 8px; }
+.q dt { font-family: var(--font-ui); font-weight: 600; font-size: 15px; margin-top: 14px; }
+.q dd { margin: 2px 0 0; }
+.gloss { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 10px 22px; margin: 0 0 18px; font-size: 17px; line-height: 1.5; }
+.gloss dt { font-family: var(--font-ui); font-weight: 600; font-size: 15px; padding-top: 0.15em; }
+.gloss dd { margin: 0; }
+@media (max-width: 600px) { .gloss { grid-template-columns: minmax(0, 1fr); gap: 2px; } .gloss dd { margin-bottom: 10px; } }
+.gloss-group { font-family: var(--font-ui); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 30px 0 12px; }
+
+/* footer */
+.about { margin-top: 72px; border-top: 1px solid var(--line); padding-top: 28px; font-family: var(--font-ui); font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+.about h2 { font-family: var(--font-ui); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 26px 0 10px; }
+.about ul, .about ol { padding-left: 1.2em; margin: 0; }
+.about li { margin-bottom: 6px; }
+.refs { font-size: 13.5px; }
+.refs li { margin-bottom: 5px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead col">
+  <p class="eyebrow"><span>Loop study</span><span>Worked examples</span><span>October 2026</span><button type="button" class="theme-btn" id="theme-btn" aria-pressed="false">Dark mode</button></p>
+  <h1>Inside a tool-call loop</h1>
+  <p class="dek">Gemma 4 31B, run with thinking switched off, often re-sends a search that just failed, dozens of times in a row. Two real tasks show how such a loop starts and locks in, why a forced thought breaks it when four empty tokens mostly don't, and what changes when a fix runs over whole tasks.</p>
+  <section class="brief" aria-labelledby="brief-h">
+    <h2 id="brief-h">In brief</h2>
+    <ul>
+      <li>A loop starts with a search that finds nothing, goes back to it, and locks in. After three identical calls, another copy follows 96% of the time.</li>
+      <li>Left to choose, the model stops thinking inside loops. Where it skipped the thought, forcing one makes 58% of calls escape, against 11%.</li>
+      <li>Adding an empty thought before every call shortens runs of copies but leaves the agent stuck just as often. It solves no more tasks.</li>
+      <li>Each stage has a known cause. Copies reinforce themselves, low-temperature sampling hardens the preference, and the model thinks when unsure, which it rarely is inside a loop.</li>
+    </ul>
+  </section>
+</header>
+
+<article>
+<div class="col">
+  <p>The agent in these examples is Gemma 4 31B (int4, quantization-aware trained) working on real issues from four Python repositories: fastapi, requests, httpx and rich. It runs inside the coding-agent harness of the Gemma 4 agent competition on Kaggle, with thinking switched off, sampling at temperature 0.2. When it fails a task, the trace often ends the same way: one tool call, sent again and again, getting the same answer each time.</p>
+  <p>A useful picture is someone hunting for their keys who keeps opening the same drawer. For a person, remembering &ldquo;I already looked there&rdquo; ends the search. For the model it works the other way round. Its record of having opened the drawer is a pattern to copy, and every copy makes the next one more likely.</p>
+
+  <h2 id="agent">How the agent works</h2>
+  <p>The agent is a loop between the model and a harness. At each step the model reads the whole history (the task, every earlier tool call, and what each call returned) and writes one new call. The harness runs it and appends the result.</p>
+  <p>Gemma 4 can also write a private thought before a call, between <code>&lt;|channel&gt;thought</code> and <code>&lt;channel|&gt;</code>. With thinking switched off, the chat template inserts an <em>empty</em> thought, four tokens long, and only before the first call. Later calls follow the last tool result directly, and the model decides for itself whether to write the empty thought first.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 1. What the model reads just before it writes a call</p>
+    <pre class="tokens" tabindex="0" aria-label="Token sequences for the first call, later calls, and the always-block template"><span class="lbl">First call, any template</span>
+&hellip;task&hellip;&lt;turn|&gt;&lt;|turn&gt;model <span class="add">&lt;|channel&gt;thought\n&lt;channel|&gt;</span>   <span class="note">&larr; the template adds the empty thought</span>
+
+<span class="lbl">Later calls, the model&rsquo;s own template</span>
+&hellip;&lt;|tool_response&gt;{result}&lt;tool_response|&gt;               <span class="note">&larr; nothing added; the model chooses</span>
+    <span class="add">&lt;|channel&gt;thought\n&lt;channel|&gt;</span>&lt;|tool_call&gt;&hellip;            <span class="note">writes it itself</span>
+    &lt;|tool_call&gt;&hellip;                                        <span class="note">or goes straight to the call</span>
+
+<span class="lbl">Later calls, the always-block template</span>
+&hellip;&lt;tool_response|&gt;<span class="add">&lt;|channel&gt;thought\n&lt;channel|&gt;</span>            <span class="note">&larr; always added</span>
+
+<span class="lbl">The history, any template</span>
+&hellip;&lt;|tool_call&gt;call:run_command{&hellip;}&lt;tool_call|&gt;&lt;|tool_response&gt;&hellip;   <span class="note">&larr; past empty thoughts are stripped</span></pre>
+  </div>
+  <figcaption>Shaded tokens are the empty thought. A tool call is written as <code>&lt;|tool_call&gt;call:run_command{command:&hellip;}&lt;tool_call|&gt;</code>. The always-block template is the fix tested over whole tasks further down.</figcaption>
+</figure>
+
+<div class="col">
+  <h2 id="example-1">A loop, call by call</h2>
+  <p>Task <code>fastapi_14246</code> asks for a fix to how FastAPI separates input and output schemas for nested models. In the run below the agent failed, and almost all of its call budget went into one loop.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 2. Sixty tool calls on one task</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-new"></span>New call</li>
+      <li><span class="sw k-return"></span>Repeat of an earlier call</li>
+      <li><span class="sw k-copy"></span>Copy of the call just before</li>
+      <li><span class="sw rule-h"></span>Budget warning in the result</li>
+    </ul>
+    <div class="chart strip" tabindex="0" data-strip="orig14246" data-end="submits an empty patch"
+         data-brackets='[[10,58,"the same grep, 49 times in a row",0],[8,9,"finds nothing, tries a variant",1]]'
+         aria-label="Call timeline of task fastapi_14246. Use the left and right arrow keys to step through the calls."></div>
+    <details class="alt"><summary>All calls as a list</summary><ol class="calllist" data-list="orig14246"></ol></details>
+  </div>
+  <figcaption>Each square is one tool call, in order, numbered from 0. <b>Call 8</b> greps for <code>get_openapi_route</code>, a function that isn&rsquo;t in that file, and finds nothing. <b>Call 9</b> tries a variant. From <b>call 10</b> the agent sends the call-8 grep 49 times in a row. The harness&rsquo;s budget warning is in every result from call 49 on. Hover over or tap a square to see the call.</figcaption>
+</figure>
+
+<div class="col">
+  <p>The run shows the four stages of a loop in order.</p>
+  <ol class="stages">
+    <li><span><b>Onset.</b> A search for something that isn&rsquo;t there finds nothing (call 8), and the model tries a variant (call 9).</span></li>
+    <li><span><b>Return.</b> It goes back to the search that already failed (call 10). Most loops start this way.</span></li>
+    <li><span><b>Lock-in.</b> Each copy makes the next one likelier. Across 109 tasks, once the agent has sent the same call twice in a row, a third copy follows 77&ndash;78% of the time; after three or more, another copy follows 96% of the time.</span></li>
+    <li><span><b>Exit.</b> Nothing inside the loop ends it. The budget warning arrives, and the agent submits an empty patch.</span></li>
+  </ol>
+
+  <h3 id="replay">What would the model do next?</h3>
+  <p>A replay test (we call it Gate 1) takes a recorded state, meaning the history just before one call, changes the context in one way, and asks the same weights what they would do next. It reports two things. The first is <em>p(copy)</em>, the probability the model gives to sending the copy again at the run&rsquo;s sampling settings. The second is one sampled call, labelled as a copy or a new call. Table 1 shows four states from this loop.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 1. p(copy) at four states of the loop in Figure 2</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Context</th><th class="n">2nd copy<br>call 11</th><th class="n">7th<br>call 16</th><th class="n">15th<br>call 24</th><th class="n">26th<br>call 35</th><th>Sampled call<br>at calls 16, 24, 35</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Student<span class="d">the model as it ran, thinking off</span></td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td>&ndash;</td></tr>
+          <tr><td>Note<span class="d">adds &ldquo;This command printed nothing&hellip; Do not run it again&rdquo;</span></td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td>&ndash;</td></tr>
+          <tr><td>Hindsight hint (T-hint)<span class="d">names the exact call and says it already returned nothing</span></td><td class="n">0.87</td><td class="n">0.92</td><td class="n">0.51</td><td class="n">0.32</td><td>&ndash;</td></tr>
+          <tr><td>Empty thought (block)<span class="d">forces the four-token empty thought before the call</span></td><td class="n">0.65</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">0.87</td><td><span class="sq" aria-hidden="true"><i class="k-copy"></i><i class="k-copy"></i><i class="k-copy"></i></span>copy, copy, copy</td></tr>
+          <tr><td><span class="sw k-own"></span> Own choice (T-think)<span class="d">thinking on; the model may write a thought, and wrote none here</span></td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td class="n">1.00</td><td><span class="sq" aria-hidden="true"><i class="k-copy"></i><i class="k-copy"></i><i class="k-copy"></i></span>copy, copy, copy</td></tr>
+          <tr><td>Copies deleted (dedup)<span class="d">removes the earlier copies of the call from the history</span></td><td class="n">&ndash;</td><td class="n zero">0.00</td><td class="n zero">0.00</td><td class="n zero">0.00</td><td>&ndash;</td></tr>
+          <tr><td><span class="sw k-forced"></span> Forced thought (T-open)<span class="d">thinking on, thought already opened; it can&rsquo;t close before 32 tokens</span></td><td class="n zero">0.00</td><td class="n zero">0.00</td><td class="n zero">0.00</td><td class="n zero">0.00</td><td><span class="sq" aria-hidden="true"><i class="k-new"></i><i class="k-new"></i><i class="k-new"></i></span>new, new, new</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>p(copy) is the probability of sending the same grep again at temperature 0.2, top-p 0.95 and top-k 64. A value of 0.00 means the copy falls outside the sampling nucleus and can no longer be drawn. Dedup applies only once the history holds two or more copies. A dash in the last column means the replay drew no sample in that context.</figcaption>
+</figure>
+
+<div class="col">
+  <p>Here is what two of the forced thoughts said.</p>
+  <div class="thought">
+    <p class="who">T-open&rsquo;s thought at call 16 (excerpt)</p>
+    <blockquote><p>Okay, I&rsquo;m looking for where <code>separate_input_output_schemas</code> is used to handle nested models. [&hellip;] Let&rsquo;s find where <code>get_schema_from_model_field</code> is defined. It&rsquo;s imported from <code>fastapi._compat</code>.</p></blockquote>
+    <p class="then">Next call: <code>grep -r "def get_schema_from_model_field" fastapi/_compat/</code></p>
+  </div>
+  <div class="thought">
+    <p class="who">T-open&rsquo;s thought at call 35 (excerpt)</p>
+    <blockquote><p>Okay, I&rsquo;ve spent some time trying to find <code>get_openapi_route</code> in <code>fastapi/openapi/utils.py</code> but it seems I was mistaken about the function name or it&rsquo;s not there.</p></blockquote>
+    <p class="then">Next call: <code>grep -n "separate_input_output_schemas" fastapi/openapi/utils.py</code></p>
+  </div>
+  <p>The first thought never mentions the loop. It re-plans from the task and picks a different next step. The second names the dead end outright.</p>
+
+  <h3 id="why">Why each context works or fails</h3>
+  <ul>
+    <li><b>The note</b> says exactly the right thing and changes nothing. Instructions don&rsquo;t reach a model that has locked in.</li>
+    <li><b>The hindsight hint</b> helps more as the loop goes on, but the copy stays the likeliest call.</li>
+    <li><b>The empty thought</b> halves p(copy) on average, but not in this task: at the 7th and 15th copies it changes nothing.</li>
+    <li><b>Own choice</b> fails because the model never thinks. Free to write a thought, it went straight to the call at every one of these states.</li>
+    <li><b>Deleting the copies</b> and <b>forcing a thought</b> both work. One removes the pattern the model is copying. The other makes it stop and re-plan.</li>
+  </ul>
+
+  <h2 id="averages">What the averages say</h2>
+  <p>The loop above is an extreme case, but the same picture holds over all 581 replay states in 70 tasks. Left to choose, the model writes a real thought at 72% of second copies, at only 23% of third-or-later copies, and at 6% of malformed calls. Its own thinking switches off inside loops. That alone doesn&rsquo;t show a thought would have helped there, so T-open forces one at every state.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 3. Share of sampled calls that escape the loop</p>
+    <p class="fig-sub">Looping states, split by whether the model, free to think, chose to</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-own"></span>Own choice (T-think)</li>
+      <li><span class="sw k-forced"></span>Forced thought (T-open)</li>
+    </ul>
+    <div class="chart" id="fig-escape" tabindex="-1"></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>States</th><th class="n">Own choice</th><th class="n">Forced thought</th></tr></thead>
+        <tbody>
+          <tr><td>Model chose not to think (114 states, 36 tasks)</td><td class="n">11% (5&ndash;16)</td><td class="n">58% (46&ndash;69)</td></tr>
+          <tr><td>Model chose to think (99 states, 34 tasks)</td><td class="n">62% (50&ndash;75)</td><td class="n">63% (51&ndash;76)</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>A call escapes when it is a valid call that is neither a stale repeat nor malformed. Looping states are second and later copies, returns to an earlier call, and other stale repeats: 213 states in 44 tasks. Bars show the pooled share; whiskers show 95% intervals from resampling tasks. Where the model skipped the thought, forcing one adds 47 points (33&ndash;61).</figcaption>
+</figure>
+
+<div class="col">
+  <p>Where the model chose to think, forcing a thought changes nothing (62% against 63%). Where it chose not to, a forced thought escapes 58% of the time against 11%. The states the model skips are just as fixable as the ones it picks. Its decision not to think follows its confidence, and that confidence says nothing about whether a thought would help.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 4. What it takes to break a lock-in</p>
+    <p class="fig-sub">Third-or-later copies where the model wrote no real thought: 36 states in 14 tasks</p>
+    <div class="chart" id="fig-ladder" tabindex="-1"></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Context</th><th class="n">Sampled calls that escape</th><th class="n">p(copy)</th></tr></thead>
+        <tbody>
+          <tr><td>Student (thinking off, as it ran)</td><td class="n">&ndash;</td><td class="n">0.99</td></tr>
+          <tr><td>Thinking on, the model skips the thought</td><td class="n">1 of 36 (3%)</td><td class="n">0.97</td></tr>
+          <tr><td>Empty thought, thinking off (block)</td><td class="n">8 of 36 (22%)</td><td class="n">0.47</td></tr>
+          <tr><td>Empty thought, thinking on (C-none)</td><td class="n">10 of 36 (28%)</td><td class="n">0.39</td></tr>
+          <tr><td>Forced real thought (T-open)</td><td class="n">25 of 36 (69%)</td><td class="n">0.11</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>Bars show the share of sampled calls that escape; the right-hand number is p(copy), the probability of sending the copy again. The student itself gives the copy 0.99.</figcaption>
+</figure>
+
+<div class="col">
+  <p>Switching thinking on does nothing by itself (p(copy) 0.97). Four empty tokens halve p(copy) but still leave most samples stuck. Only a real thought breaks the lock: p(copy) falls to 0.11 and 69% of samples escape.</p>
+  <p class="small">Two checks on the forced thoughts. None of the 581 fell into a token loop: in none is more than half of the text repeated (measured on 8-token sequences), the same as for thoughts the model writes on its own. The cost on calls that were fine is small. After an empty search, escape goes from 92% to 85%; on routine calls, from 98% to 96%.</p>
+
+  <h2 id="example-2">The same idea over whole tasks</h2>
+  <p>The replay looks one call ahead. A closed-loop test lets the agent run whole tasks with a change in place, each step feeding the next. We ran one. The <em>always-block</em> template adds the empty thought before every call. It is the edit proposed in Hugging Face PR #147 for the Gemma 4 templates, and Google&rsquo;s prompt-formatting guide also suggests adding an empty thinking token. The control arm ran the same agent with the model&rsquo;s own template, on the same 109 tasks and the same hardware.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 5. One task in each arm</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-new"></span>New call</li>
+      <li><span class="sw k-return"></span>Repeat of an earlier call</li>
+      <li><span class="sw k-copy"></span>Copy of the call just before</li>
+      <li><span class="sw rule-h"></span>Budget warning</li>
+      <li><span class="sw rule-v"></span>Compaction</li>
+    </ul>
+    <p class="strip-head">Control: the model&rsquo;s own template <span>50 calls, unresolved</span></p>
+    <div class="chart strip" tabindex="0" data-strip="ctrl12942" data-end="4-minute limit"
+         data-brackets='[[15,49,"35 identical edits, each one fails",0]]'
+         aria-label="Call timeline of task fastapi_12942 in the control arm. Use the left and right arrow keys to step through the calls."></div>
+    <p class="strip-head">Always-block template <span>57 calls, unresolved</span></p>
+    <div class="chart strip" tabindex="0" data-strip="block12942" data-end="submits"
+         data-brackets='[[4,55,"two failing greps, A and B, in turn",0]]'
+         aria-label="Call timeline of task fastapi_12942 in the always-block arm. Use the left and right arrow keys to step through the calls."></div>
+    <details class="alt"><summary>All calls as a list</summary>
+      <p class="strip-head">Control</p><ol class="calllist" data-list="ctrl12942"></ol>
+      <p class="strip-head">Always-block</p><ol class="calllist" data-list="block12942"></ol>
+    </details>
+  </div>
+  <figcaption>Task <code>fastapi_12942</code>. The two arms sample different trajectories from the first call, so these are two different runs, each typical of its arm. In the control run the agent sends one failing edit 35 times, until the budget warning and the harness&rsquo;s 4-minute limit. With the always-block template it alternates between two greps that both find nothing: A is <code>grep -r "get_endpoint_params" .</code> and B is the same search piped through <code>head</code>. The empty thought ends each run of identical calls after 4&ndash;9 copies, and the agent hops to the other grep and back.</figcaption>
+</figure>
+
+<div class="col">
+  <p>Counted as runs of identical calls, the always-block run holds seven runs of three or more, and seven copy starts. Six of those runs end without a budget warning, compaction or task end. Yet the agent never leaves the dead end: it is one stuck stretch of 52 calls. The control run holds one run and one copy start. Table 2 shows the same pattern over all tasks.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 2. Control against always-block, over whole tasks</p>
+    <div class="table-wrap">
+      <table class="tbl-loop">
+        <thead><tr><th></th><th class="n">Dev tasks (70)<br>control &rarr; always-block</th><th class="n">Rich tasks (39)<br>control &rarr; always-block</th></tr></thead>
+        <tbody>
+          <tr><td>Resolved</td><td class="n">25 &rarr; 24</td><td class="n">12 &rarr; 13</td></tr>
+          <tr><td>Share of calls that are stale repeats</td><td class="n">32.3% &rarr; 26.3%</td><td class="n">53.6% &rarr; 48.3%</td></tr>
+          <tr><td>Stuck stretches (3+ bad calls in a row)</td><td class="n">36 &rarr; 41</td><td class="n">36 &rarr; 29</td></tr>
+          <tr><td>Average stretch length, in calls</td><td class="n">18.9 &rarr; 11.0</td><td class="n">22.0 &rarr; 19.9</td></tr>
+          <tr><td>Copy starts</td><td class="n">36 &rarr; 64</td><td class="n">35 &rarr; 56</td></tr>
+          <tr><td>&hellip; of them inside a stuck stretch</td><td class="n">28 &rarr; 52</td><td class="n">27 &rarr; 45</td></tr>
+          <tr><td>A third copy, after two in a row</td><td class="n">78% &rarr; 78%</td><td class="n">77% &rarr; 67%</td></tr>
+          <tr><td>Another copy, after three or more</td><td class="n">96% &rarr; 84%</td><td class="n">96% &rarr; 92%</td></tr>
+          <tr><td>Runs of 3+ identical calls</td><td class="n">28 &rarr; 50</td><td class="n">27 &rarr; 37</td></tr>
+          <tr><td>&hellip; ending without a warning, compaction or task end</td><td class="n">3 &rarr; 31</td><td class="n">4 &rarr; 22</td></tr>
+          <tr><td>Tasks with a run of 10+ identical calls</td><td class="n">16 &rarr; 9</td><td class="n">19 &rarr; 17</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>One run per arm: Gemma 4 31B with thinking off, temperature 0.2, four tasks at a time on one A100. Dev tasks come from fastapi, requests and httpx; rich tasks from the rich library. A bad call is a stale repeat or a call with malformed arguments.</figcaption>
+</figure>
+
+<div class="col">
+  <p>The number of stuck stretches barely moves, and they occur in about the same tasks. Inside them, the agent hops between stale calls more often, so runs of identical calls get shorter and more numerous, and copy starts nearly double. Resolved tasks don&rsquo;t change. Of the 53 runs that ended without a warning, compaction or task end, 29 went straight into another stale call, and only 5 were in tasks that ended resolved.</p>
+  <p>The replay had already hinted at this. One step ahead, the empty thought halved p(copy) at third-or-later copies (0.95 to 0.50), yet 80% of its sampled calls stayed stale. Over whole tasks, another copy follows three or more 84&ndash;92% of the time. The sampled call was the better guide.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 6. The same task, three runs, three kinds of loop</p>
+    <p class="strip-head">Original run <span>60 calls, empty patch</span></p>
+    <div class="chart strip" tabindex="0" data-strip="orig14246" data-brackets='[[10,58,"one grep, 49 times",0]]'
+         aria-label="Original run of task fastapi_14246. Use the left and right arrow keys to step through the calls."></div>
+    <p class="strip-head">Control <span>52 calls, patch fails the tests</span></p>
+    <div class="chart strip" tabindex="0" data-strip="ctrl14246" data-brackets='[[32,39,"two calls in turn",0]]'
+         aria-label="Control run of task fastapi_14246. Use the left and right arrow keys to step through the calls."></div>
+    <p class="strip-head">Always-block <span>47 calls, patch fails the tests</span></p>
+    <div class="chart strip" tabindex="0" data-strip="block14246" data-brackets='[[23,27,"5 rewrites of one script",0]]'
+         aria-label="Always-block run of task fastapi_14246. Use the left and right arrow keys to step through the calls."></div>
+    <details class="alt"><summary>All calls as a list</summary>
+      <p class="strip-head">Control</p><ol class="calllist" data-list="ctrl14246"></ol>
+      <p class="strip-head">Always-block</p><ol class="calllist" data-list="block14246"></ol>
+    </details>
+  </div>
+  <figcaption>Task <code>fastapi_14246</code> again (legend as in Figure 5). The original run locks onto one call. The control run alternates two calls, writing a reproduction script and printing the same ten lines of a file, until a compaction cuts the history. The always-block run keeps rewriting its reproduction script with small changes. Those calls are not identical, so exact matching counts them as new. All three runs end unresolved.</figcaption>
+</figure>
+
+<div class="col">
+  <h2 id="drift">Why the model stops writing the empty thought</h2>
+  <p>In the control arm the model writes the empty thought itself before most early calls, then less and less (Figure 7). The template strips past empty thoughts from the history, so as a task goes on, the model sees a longer and longer record of calls with no thought in front of them. Agents tend to imitate their own earlier turns, and more so as the context grows; Wan et al. call this conversational inertia. That would produce this drift. It is a hypothesis we haven&rsquo;t tested yet, and the second open question below describes the test.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 7. Calls where the model writes the empty thought itself</p>
+    <p class="fig-sub">Control arm, 109 tasks, by the call&rsquo;s place in the task</p>
+    <div class="chart" id="fig-drift" tabindex="-1"></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Calls</th><th class="n">Writes the empty thought</th><th class="n">Calls counted</th></tr></thead>
+        <tbody>
+          <tr><td>2&ndash;5</td><td class="n">82.8%</td><td class="n">436</td></tr>
+          <tr><td>6&ndash;10</td><td class="n">59.1%</td><td class="n">516</td></tr>
+          <tr><td>11&ndash;20</td><td class="n">31.0%</td><td class="n">838</td></tr>
+          <tr><td>21 and later</td><td class="n">19.0%</td><td class="n">2,201</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>The first call always has it, because the template adds it there. Under the always-block template every call has it.</figcaption>
+</figure>
+
+<div class="col">
+  <h2 id="prior-work">How this connects to prior work</h2>
+  <p>Loops in agents are well documented. These examples add a measurement at the level of single decisions, interventions compared at the same states, and a whole-task test of one fix. Table 3 maps each part of the picture to the closest prior work.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 3. Each stage, and what prior work found</p>
+    <div class="table-wrap">
+      <table class="tbl-prior">
+        <thead><tr><th>Where it shows up here</th><th>Prior work</th><th>What they found, and how it relates</th></tr></thead>
+        <tbody>
+          <tr><td>Onset: an empty search, a variant, then back (calls 8&ndash;10)</td><td><a href="https://arxiv.org/abs/2210.03629">ReAct</a>; <a href="https://arxiv.org/abs/2506.18824">Bouzenia &amp; Pradel</a>; <a href="https://arxiv.org/abs/2605.08477">Otani et al.</a></td><td>ReAct counts non-informative search as 23% of its errors. Otani et al. see the identical call right after an empty result 30&ndash;45% of the time. Our agent usually tries a variant first, then returns.</td></tr>
+          <tr><td>Returns after lost context</td><td><a href="https://arxiv.org/abs/2608.00902">Liu et al. (KV compaction)</a>; <a href="https://arxiv.org/abs/2606.23525">Li et al.</a>; <a href="https://arxiv.org/abs/2401.13919">WebVoyager</a></td><td>Compaction raised duplicate searches from 11.7% to 21.3%, and summaries can re-dump the same dead end. In our original runs, 44% of loops re-send a call that compaction had hidden.</td></tr>
+          <tr><td>Lock-in (calls 10&ndash;58)</td><td><a href="https://arxiv.org/abs/1904.09751">Holtzman et al.</a>; <a href="https://arxiv.org/abs/2206.02369">Xu et al.</a>; <a href="https://arxiv.org/abs/2512.12895">Pipis et al.</a>; <a href="https://arxiv.org/abs/2209.11895">Olsson et al.</a></td><td>The probability of a repeated phrase rises with each repetition. We see the same self-reinforcement at the level of whole tool calls.</td></tr>
+          <tr><td>The copies in the history drive it (dedup &rarr; 0.00)</td><td><a href="https://arxiv.org/abs/2509.09677">Sinha et al.</a>; <a href="https://arxiv.org/abs/2602.03664">Wan et al.</a>; <a href="https://arxiv.org/abs/2608.23651">Gumaan</a></td><td>Models condition on their own past errors and imitate their own past turns. In Gumaan&rsquo;s experiments the failed call&rsquo;s surface form carries 83% of the effect.</td></tr>
+          <tr><td>Instructions fail (the note)</td><td><a href="https://arxiv.org/abs/2608.23651">Gumaan</a>; <a href="https://www.kaggle.com/competitions/gemma-4-developer-agent/discussion/745774">Kaggle thread 745774</a>; <a href="https://github.com/google-gemini/gemini-cli/blob/acae7124bdd8/packages/core/src/services/loopDetectionService.ts">Gemini CLI</a></td><td>&ldquo;Do not repeat&rdquo; does nothing, and warnings are ignored once a loop has started.</td></tr>
+          <tr><td>The model doesn&rsquo;t think where it should (Figure 3)</td><td><a href="https://arxiv.org/abs/2602.12662">CogRouter</a>; <a href="https://arxiv.org/abs/2605.28398">HRBench</a>; <a href="https://arxiv.org/abs/2602.06948">Kaddour et al.</a>; <a href="https://arxiv.org/abs/2502.13069">Ambig-SWE</a>; <a href="https://arxiv.org/abs/2610.09858">Caddie</a></td><td>Routers trained on action confidence skip exactly the confident states. Agents rarely ask for help unprompted. A critic run at fixed steps beat one the agent called itself, 25.9% against 19.1%.</td></tr>
+          <tr><td>A forced thought works (Figure 4)</td><td><a href="https://arxiv.org/abs/2509.09677">Sinha et al.</a>; <a href="https://arxiv.org/abs/2608.23179">NetConfArena</a>; <a href="https://arxiv.org/abs/2501.19393">s1</a>; <a href="https://arxiv.org/abs/2606.13705">Lazaridis et al.</a>; <a href="https://arxiv.org/abs/2608.13667">Second Thought</a></td><td>Thinking removes self-conditioning in Qwen3&rsquo;s thinking models and cuts Qwen3-8B&rsquo;s repeated actions fourfold. s1 and Lazaridis et al. warn that forced thinking can loop; ours didn&rsquo;t. Second Thought found no significant gain from forced thinking on SWE tasks.</td></tr>
+          <tr><td>The empty thought (Figures 5&ndash;7)</td><td><a href="https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4">Gemma 4 docs</a>; <a href="https://huggingface.co/google/gemma-4-31B-it/discussions/147">HF PR #147</a>; <a href="https://arxiv.org/abs/2510.12680">Wang et al.</a>; <a href="https://arxiv.org/abs/2505.09388">Qwen3 report</a></td><td>Google suggests adding an empty thinking token. The PR makes our exact edit and measured stray thoughts, which it removed; it did not measure loops. Qwen3&rsquo;s no-thinking mode always includes an empty block.</td></tr>
+          <tr><td>Probability against behaviour (Table 2)</td><td><a href="https://arxiv.org/abs/2608.09836">Mismatch Matters</a>; <a href="https://arxiv.org/abs/2608.23651">Gumaan</a>; <a href="https://arxiv.org/abs/2608.08239">The Replay Gap</a></td><td>Probabilities and KL look calm inside loops, and one-step probes overstate whole-task effects.</td></tr>
+          <tr><td>Leaving a loop is not solving the task</td><td><a href="https://arxiv.org/abs/2504.21798">SWE-smith</a>; <a href="https://arxiv.org/abs/2610.02769">Liu et al.</a>; <a href="https://arxiv.org/abs/2405.15793">SWE-agent</a>; <a href="https://arxiv.org/abs/2608.03222">Fail-Fast</a></td><td>When SWE-smith cut repeats, its resolve rate went from 40.2% to 38.4%, and it calls loops &ldquo;symptoms of the model&rsquo;s difficulty&rdquo;. SWE-agent&rsquo;s forced submissions resolve 3.1% of tasks, against 14.3% for normal ones.</td></tr>
+          <tr><td>Detectors (Figure 5)</td><td><a href="https://github.com/OpenHands/OpenHands/blob/6e4ac8e2cec9c8c0a0f640f511916dc3fc294e89/openhands/controller/stuck.py">OpenHands</a>; <a href="https://github.com/google-gemini/gemini-cli/blob/acae7124bdd8/packages/core/src/services/loopDetectionService.ts">Gemini CLI</a></td><td>Production detectors count identical calls, 3 to 5 in a row, and OpenHands also looks for alternating patterns. All fire after lock-in has begun at the second copy, and counts of identical runs miss the hopping in Figure 5.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</figure>
+
+<div class="col">
+  <h2 id="why-loops">Why loops happen</h2>
+  <p>No single theory explains agent loops, but each stage of the loops above matches a known principle, and the principles fit together. Each part below says how firm it is: established in prior work, measured in our data, or a hypothesis that fits the data but hasn&rsquo;t been tested.</p>
+
+  <p class="status">Established; measured here</p>
+  <h3>Lock-in is a self-reinforcing process</h3>
+  <p>Each copy multiplies the odds of the next one (Figure 8). Repetition in text follows the same law: a repeated phrase becomes more likely with each repetition (Holtzman et al.), and the effect then saturates (Xu et al.). A P&oacute;lya urn behaves this way: every ball drawn adds another ball of its colour.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 8. Each copy makes the next one likelier</p>
+    <p class="fig-sub">Control arm, 109 tasks: the chance that the next call is one more copy</p>
+    <div class="chart" id="fig-lockin" tabindex="-1"></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>The last calls were</th><th class="n">Next call is a copy</th><th class="n">Odds</th><th class="n">Cases</th></tr></thead>
+        <tbody>
+          <tr><td>Any one call</td><td class="n">2.7%</td><td class="n">0.03</td><td class="n">2,649</td></tr>
+          <tr><td>Two identical calls</td><td class="n">77.5%</td><td class="n">3.4</td><td class="n">71</td></tr>
+          <tr><td>Three or more identical calls</td><td class="n">95.7%</td><td class="n">22.5</td><td class="n">1,176</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>The first repeat multiplies the odds of another copy about 120 times; each later copy, about 6.5 times. Under the always-block template the three shares are 5.0%, 73.1% and 89.0%.</figcaption>
+</figure>
+
+<div class="col">
+  <p>This also explains how long loops last. If each call continues the loop with probability <i>q</i>, the rest of the run is geometric, with a mean of 1/(1&nbsp;&minus;&nbsp;<i>q</i>) further copies.</p>
+  <ul>
+    <li><b>Control, q = 0.957:</b> about 23 more calls, more than most loops have left before the budget warning. So 48 of the 55 runs of three or more end at an outside event (the budget warning, a compaction or the end of the task), and only 7 end on their own.</li>
+    <li><b>Always-block, q = 0.89:</b> about 9 more calls, and 6 on dev tasks, where q is 0.84.</li>
+    <li><b>Near q = 1 the mean is very sensitive to q.</b> A modest drop cuts runs sharply. That is the fragmentation in Table 2: shorter runs, but about as many stuck stretches.</li>
+  </ul>
+
+  <p class="status">Hypothesis</p>
+  <h3>The repeated result cues the copy</h3>
+  <p>Induction heads (Olsson et al.) find where the current context appeared before and copy what followed: A&nbsp;B&nbsp;&hellip;&nbsp;A&nbsp;&rarr;&nbsp;B. In our loops, 91% of stale repeats got exactly the result their earlier copy got. So the context ends with a result that appeared before, and last time that result was followed by the same call. The repeated result doesn&rsquo;t tell the model to stop. It tells the copying circuit what to send.</p>
+  <p>Four observations fit this, though none proves it:</p>
+  <ul>
+    <li><b>The jump at the third copy.</b> At the first repeat, the result has never been followed by the call, so the cue doesn&rsquo;t exist yet; from the third call on, it does. At Google&rsquo;s recommended sampling (temperature 1), the model&rsquo;s own p(copy) is 0.26 at second copies and 0.73 at third-or-later ones.</li>
+    <li><b>Changing the last result weakens the copy.</b> The note and the hindsight hint both add text to it, and both halve p(copy).</li>
+    <li><b>So does the empty thought.</b> It puts four tokens between the result and the call, tokens that never appear in the history because past ones are stripped.</li>
+    <li><b>The hopping in Figure 5 is a copied pattern.</b> After grep B&rsquo;s empty result, the history already holds &ldquo;B&rsquo;s result, then A&rdquo; (calls 7 and 8).</li>
+  </ul>
+  <p>The statistical version of the same idea: in-context learning behaves like Bayesian inference over a hidden concept (Xie et al.). The agent&rsquo;s own past calls count as examples of what it does here, so each copy is more evidence for sending the same call again. Sinha et al.&rsquo;s self-conditioning and Wan et al.&rsquo;s conversational inertia are this effect seen in agents. A clean test, for later: make each repeated result differ in a way that means nothing, such as a request id, and see whether lock-in collapses.</p>
+
+  <p class="status">Established; measured here</p>
+  <h3>Low temperature turns a preference into a certainty</h3>
+  <p>At temperature <i>T</i>, the sampler draws from <i>p</i>(<i>x</i>)<sup>1/<i>T</i></sup>, renormalised. At T = 0.2 the odds between two calls are raised to the fifth power, so 2&nbsp;:&nbsp;1 becomes 32&nbsp;:&nbsp;1. The replay separates this from the model&rsquo;s own preference at the same states (Table 4).</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 4. The model&rsquo;s own preference, and what sampling at 0.2 makes of it</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>State</th><th class="n">Model&rsquo;s own p(call)<br>temperature 1, top-p 0.95</th><th class="n">At the run&rsquo;s<br>temperature 0.2</th></tr></thead>
+        <tbody>
+          <tr><td>Second copy</td><td class="n">0.26</td><td class="n">0.77</td></tr>
+          <tr><td>Third-or-later copy</td><td class="n">0.73</td><td class="n">0.94</td></tr>
+          <tr><td>Routine call, for reference</td><td class="n">0.52</td><td class="n">0.78</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>From the replay, at the same states: the probability of the call the model actually made. Temperature 1 with top-p 0.95 is Google&rsquo;s recommended sampling for Gemma 4.</figcaption>
+</figure>
+
+<div class="col">
+  <p>So lock-in has two parts. In-context reinforcement raises the model&rsquo;s own preference for the copy, from 0.26 at the second copy to 0.73 at the third and later. Low temperature then makes the most likely call nearly certain; at the second copy, most of the 78% lock-in comes from the sampler. Near-greedy decoding of a self-reinforcing process settles into a cycle, which is the classic degeneration result (Holtzman et al.). Pipis et al. call temperature &ldquo;a stopgap&rdquo;, and in these terms it removes the second part and leaves the first. Sampling at temperature 1 would weaken lock-in, not end it: the only whole-task run at temperature 1, with a different agent prompt, still locked in 73% of the time.</p>
+
+  <p class="status">Established principle; seen in our traces</p>
+  <h3>Loops start with a call that can&rsquo;t teach anything</h3>
+  <p>In a deterministic environment, an identical read-only call returns what it returned before, so it carries no new information. A rational searcher never makes one, and a stale repeat is exactly such a call. Next-token training has no term for new information: the model picks what is likely given the context. In our traces the onset runs like this:</p>
+  <ol class="stages">
+    <li><span>The model searches for something it strongly believes exists, such as a plausible function name that isn&rsquo;t in the file.</span></li>
+    <li><span>The empty result contradicts that belief but gives almost no text to condition on.</span></li>
+    <li><span>It tries variants: after an empty search, the next call is a variant 78% of the time. When the variants also fail, it returns to its first and most likely query. 114 of 131 loops start by re-sending a call from two or more calls back.</span></li>
+  </ol>
+  <p>Liu et al. show the disconnect directly: shuffling an agent&rsquo;s past actions changes its score by only 2.55 points, so it isn&rsquo;t tracking which call produced which result.</p>
+  <p>Learning theory explains why this shows up once the agent is off track. A policy trained to imitate experts errs at some rate &epsilon; per step, and each error takes it somewhere the experts never went, with nothing to imitate. Over a horizon of <i>H</i> steps its errors grow like &epsilon;<i>H</i><sup>2</sup> rather than &epsilon;<i>H</i> (Ross, Gordon &amp; Bagnell). A made-up function name is such a place, and copying its own recent behaviour is the fallback there. Pipis et al. report the same in reasoning models: when progress is hard to learn, an easy repeating action keeps its probability, and students distilled from a teacher loop more than the teacher does (30% against 4%).</p>
+
+  <p class="status">Measured here</p>
+  <h3>The model thinks when unsure, and a loop is where it is most sure</h3>
+  <p>Metareasoning (Russell &amp; Wefald) says to deliberate when the expected gain from thinking exceeds its cost, which they call the value of computation. Our model instead thinks when it is uncertain. Free to choose, it writes a thought at 72% of second copies and 23% of third-or-later copies, while p(copy) rises from 0.77 to 0.94. At a loop state the current action is worth nothing, and a thought improves it most of the time, so thinking is worth most exactly where the model is most certain. Figure 3 measures this: a forced thought helps as much where the model skipped thinking (58%) as where it chose to think (63%).</p>
+  <p>Any trigger built on confidence or entropy has this blind spot; HRBench calls the failures &ldquo;confident wrong answers&rdquo;. A useful trigger reads a signal tied to the benefit, such as &ldquo;my last call returned the same result as before&rdquo;. A harness sees that easily, so a controller outside the model can decide when to think.</p>
+
+  <h3>What is specific to tool calls and code</h3>
+  <ul>
+    <li><b>The environment echoes.</b> Each cycle adds two identical pieces to the context, the call and its identical result, and nothing outside disturbs them. In free text only the model&rsquo;s own words repeat.</li>
+    <li><b>Calls are short, rigid strings.</b> Copying a whole call is cheap and always gives valid syntax.</li>
+    <li><b>The worst results are the emptiest.</b> A grep that finds nothing returns the same featureless answer every time: a clean cue for copying, and almost nothing to reason from. In one recorded run, 270 of 580 repeated shell commands got nothing back. Sethi et al. found that an <code>ok</code> status with an empty payload led to 45% fabricated answers, against 0% for an explicit error.</li>
+    <li><b>Contexts grow.</b> The repeated block grows while the task statement recedes. Compaction cuts both ways: it deletes the copies, and with them the evidence of failure; 44% of loops re-send a call that compaction had hidden.</li>
+  </ul>
+
+  <h3>One model for all of it</h3>
+  <p>A stylised model, not a fitted one, puts the pieces together. The probability of each candidate call <i>c</i> is</p>
+  <div class="formula" role="img" aria-label="P of next call equals c is proportional to the exponential of s of c plus lambda times n of c plus mu times m of c, all divided by T">P(next call = <i>c</i>) &prop; exp( [ <i>s</i>(<i>c</i>) + &lambda;&middot;<i>n</i>(<i>c</i>) + &mu;&middot;<i>m</i>(<i>c</i>) ] / <i>T</i> )</div>
+  <dl class="gloss vars">
+    <dt>s(c)</dt><dd>the model&rsquo;s prior for call c, given the task</dd>
+    <dt>n(c)</dt><dd>copies of c already in the context</dd>
+    <dt>m(c)</dt><dd>1 when the last result matches what came before c the previous time, otherwise 0</dd>
+    <dt>&lambda;, &mu;</dt><dd>how strongly the copies and the cue pull</dd>
+    <dt>T</dt><dd>the sampling temperature</dd>
+  </dl>
+  <p>Each lever we tested changes one part of it (Table 5). What the model has no term for is new information, or which call produced which result. That gap is where the most promising fixes would act.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 5. Each lever, and the part of the model it changes</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Lever</th><th>What it changes</th><th class="n">p(copy) at third-or-later copies</th></tr></thead>
+        <tbody>
+          <tr><td>Copies deleted (dedup)</td><td>fewer copies in the context, <i>n</i></td><td class="n">0.94 &rarr; 0.14</td></tr>
+          <tr><td>Empty thought</td><td>breaks the result-to-call cue, <i>m</i></td><td class="n">0.95 &rarr; 0.50</td></tr>
+          <tr><td>Note; hindsight hint</td><td>change the last result, <i>m</i>, and restate it</td><td class="n">0.94 &rarr; 0.49; 0.45</td></tr>
+          <tr><td>Temperature 1 instead of 0.2</td><td>softens every term fivefold</td><td class="n">0.94 &rarr; 0.73</td></tr>
+          <tr><td>Forced thought</td><td>rewrites the context the terms are computed on</td><td class="n">0.94 &rarr; 0.12</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>One step ahead, from the replay. The empty thought&rsquo;s row covers the 40 states where it applies. The model reproduces the shape of the data: the large jump at the first repeat, run length&rsquo;s sensitivity to q, fragmentation under the empty thought, and why only deleting the copies or forcing a thought brings p(copy) near zero.</figcaption>
+</figure>
+
+<div class="col">
+  <p>How firm each piece is:</p>
+  <dl class="gloss">
+    <dt>Established elsewhere</dt><dd>Self-reinforcement and its saturation; degeneration at low temperature; compounding errors in imitation; confidence-based triggers failing on confident mistakes.</dd>
+    <dt>Measured in our data</dt><dd>The lock-in curve; the split between reinforcement and temperature; the thinking trigger&rsquo;s failure; the onset at calls that can&rsquo;t teach anything.</dd>
+    <dt>Fits, untested</dt><dd>The repeated result as the copy cue; the A/B cycle as a copied pattern; conversational inertia behind the drift.</dd>
+  </dl>
+</div>
+
+<div class="col">
+  <h2 id="questions">Open questions</h2>
+
+  <h3>1. Why does the always-block template double copy starts?</h3>
+  <dl class="q">
+    <dt>Where it came from</dt>
+    <dd>Table 2. Copy starts went from 36 to 64 on dev tasks and from 35 to 56 on rich ones. That contradicts a prediction of fewer, drawn from Gumaan and Liu et al., and the replay, where the empty thought halved p(copy).</dd>
+    <dt>A first look</dt>
+    <dd>It is mostly fragmentation. Counting stuck stretches instead of runs, the number barely changes (36 to 41, and 36 to 29), in about the same tasks. 52 of the 64 dev copy starts fall inside a stretch, against 28 of 36 in the control arm. Figure 5 shows the mechanism: inside one stretch, each hop back to grep A starts a new run.</dd>
+    <dt>What&rsquo;s left</dt>
+    <dd>Copy starts outside stuck stretches rose from 8 to 12 on dev tasks and from 8 to 11 on rich ones. Those counts are small.</dd>
+  </dl>
+
+  <h3>2. Does the drift reset after a compaction?</h3>
+  <dl class="q">
+    <dt>Where it came from</dt>
+    <dd>The drift in Figure 7, the template&rsquo;s rule of stripping past empty thoughts, and Wan et al.&rsquo;s conversational inertia.</dd>
+    <dt>How to answer it</dt>
+    <dd>A compaction replaces much of the history with a summary. If the model imitates its visible history, it should start writing the empty thought again right after a compaction. If it doesn&rsquo;t, the drift depends on how deep the agent is in the task. The control arm&rsquo;s call records already hold both pieces.</dd>
+    <dt>Why it matters</dt>
+    <dd>It would explain the drift. The same inertia would also explain another pattern in these runs: once the harness quietly accepts a call written in a slightly wrong format, later calls copy that format.</dd>
+  </dl>
+
+  <h3>3. Would a forced thought at stuck states turn escapes into resolved tasks?</h3>
+  <dl class="q">
+    <dt>Where it came from</dt>
+    <dd>T-open is the strongest lever, but it was measured one step ahead. The one lever we ran over whole tasks lost most of its one-step effect, and its escapes rarely led anywhere.</dd>
+    <dt>What prior work says</dt>
+    <dd>Escapes that bring nothing new don&rsquo;t help (SWE-smith, Liu et al., Gumaan, Second Thought). Escapes that bring information help a little: a restart that keeps the earlier diff gave Gemma 4 31B 3.0 more points (<a href="https://arxiv.org/abs/2608.03222">Fail-Fast</a>), and showing the remaining budget added 18.6 (<a href="https://arxiv.org/abs/2511.17006">BATS</a>).</dd>
+    <dt>Why it is still open</dt>
+    <dd>A real thought may be the kind that brings information. The thought at call 35 noticed the dead end, which an empty thought cannot do. The ceiling is low, though: removing every loop would gain about 2 of 70 dev tasks.</dd>
+    <dt>What it needs</dt>
+    <dd>A controller that forces a thought when it sees a copy, run over whole tasks.</dd>
+  </dl>
+
+  <h2 id="terms">Terms used on this page</h2>
+  <p class="gloss-group">Behaviour</p>
+  <dl class="gloss">
+    <dt>Stale repeat</dt><dd>A call identical to an earlier one (same tool and arguments) with no successful edit in between, so it must return the same result.</dd>
+    <dt>Copy, run, copy start</dt><dd>A copy repeats the call just before. A run is a stretch of identical calls; a copy start is the second identical call in a row.</dd>
+    <dt>Return</dt><dd>A stale repeat of an earlier call that wasn&rsquo;t the one just before. Most loops start this way.</dd>
+    <dt>Lock-in</dt><dd>The chance that the next call is one more copy, given that the last few calls were identical.</dd>
+    <dt>Stuck stretch</dt><dd>Three or more bad calls in a row, identical or not. A bad call is a stale repeat or a malformed call.</dd>
+    <dt>Malformed call</dt><dd>A call with unknown or missing argument names.</dd>
+    <dt>Escape</dt><dd>The sampled call is a valid call that is neither a stale repeat nor malformed.</dd>
+  </dl>
+  <p class="gloss-group">Experiments</p>
+  <dl class="gloss">
+    <dt>State</dt><dd>One decision point: the history just before a call, plus the call the model made there. Each state has a class, such as second copy, third-or-later copy, return, after an empty search, or routine.</dd>
+    <dt>Replay (Gate 1)</dt><dd>Take a recorded state, change the context in one way, and ask the same weights what they would do next. It looks one call ahead.</dd>
+    <dt>p(copy)</dt><dd>The probability the model gives the copy at the run&rsquo;s sampling settings (temperature 0.2, top-p 0.95, top-k 64). 0.00 means the copy can no longer be sampled.</dd>
+    <dt>Closed loop</dt><dd>Whole tasks run with a change in place, each step feeding the next.</dd>
+    <dt>Student</dt><dd>The model as it ran, with thinking off.</dd>
+    <dt>T-think</dt><dd>Thinking on; the model decides whether to write a thought.</dd>
+    <dt>T-open</dt><dd>Thinking on, with the thought already opened. It can&rsquo;t close before 32 tokens and runs to at most 512.</dd>
+    <dt>block, C-none</dt><dd>The empty thought forced before the call, with thinking off (block) or on (C-none).</dd>
+    <dt>Note, T-hint</dt><dd>Text added to the last tool result: a factual note, or a hint that names the exact call and what it returned.</dd>
+    <dt>Dedup</dt><dd>The history with the earlier copies of the last call deleted.</dd>
+    <dt>Control, always-block</dt><dd>The closed-loop pair: the model&rsquo;s own template, or one that adds the empty thought before every call.</dd>
+  </dl>
+  <p class="gloss-group">Harness and analysis</p>
+  <dl class="gloss">
+    <dt>Budget warning</dt><dd>The harness&rsquo;s notice that the call budget is running out. In these runs it appears from call 49.</dd>
+    <dt>Compaction</dt><dd>The harness summarises old history when the context gets long.</dd>
+    <dt>Session limit</dt><dd>A 4-minute wall-clock limit per task.</dd>
+    <dt>Self-selection</dt><dd>The model choosing where to think. It mixes two questions: does a thought help, and where does the model choose to think?</dd>
+    <dt>Drift</dt><dd>The model writing the empty thought itself less and less as a task goes on.</dd>
+    <dt>Ceiling</dt><dd>The most a perfect loop fix could gain: tasks that loop and fail here but that another run solved. About 2 of 70 dev tasks.</dd>
+  </dl>
+  <p class="gloss-group">Theory</p>
+  <dl class="gloss">
+    <dt>Induction head</dt><dd>An attention pattern that finds where the current context appeared before and copies what followed it.</dd>
+    <dt>Temperature</dt><dd>Sampling from <i>p</i>(<i>x</i>)<sup>1/<i>T</i></sup>, renormalised. Below 1 it sharpens the distribution; at 0.2, the odds between two options are raised to the fifth power.</dd>
+    <dt>Value of computation</dt><dd>The expected gain from thinking before acting, minus the cost of thinking.</dd>
+  </dl>
+</div>
+
+<footer class="about col">
+  <h2>About the data</h2>
+  <ul>
+    <li>Model: Gemma 4 31B, int4 quantization-aware trained, served with vLLM; thinking off; temperature 0.2, top-p 0.95, top-k 64.</li>
+    <li>Replay: 581 states in 70 tasks from one recorded run of the agent with thinking off (the source of Figures 2&ndash;4 and Table 1).</li>
+    <li>Closed loop: one run per arm, 109 tasks (70 dev, 39 rich), four tasks at a time on one A100 (Figures 5&ndash;7 and Table 2).</li>
+    <li>Limits: one run per arm, one model and one temperature. T-open was measured one step ahead only. The malformed-call results rest on 4 tasks. The 4-minute session limit ended 5&ndash;15% of tasks per arm and task group.</li>
+  </ul>
+  <h2>Works mentioned</h2>
+  <ol class="refs">
+    <li>Bouzenia, I. &amp; Pradel, M. Understanding Software Engineering Agents: A Study of Thought-Action-Result Trajectories. ASE 2025. <a href="https://arxiv.org/abs/2506.18824">arXiv:2506.18824</a></li>
+    <li>Gonuguntla. The Replay Gap. COLM 2026. <a href="https://arxiv.org/abs/2608.08239">arXiv:2608.08239</a></li>
+    <li>Gumaan, E. Feedback That Backfires: Why Small Language Model Agents Repeat the Call They Just Watched Fail. 2026. <a href="https://arxiv.org/abs/2608.23651">arXiv:2608.23651</a></li>
+    <li>He, H. et al. WebVoyager. ACL 2024. <a href="https://arxiv.org/abs/2401.13919">arXiv:2401.13919</a></li>
+    <li>Holtzman, A. et al. The Curious Case of Neural Text Degeneration. ICLR 2020. <a href="https://arxiv.org/abs/1904.09751">arXiv:1904.09751</a></li>
+    <li>Kaddour, J. et al. Agentic Uncertainty Reveals Agentic Overconfidence. 2026. <a href="https://arxiv.org/abs/2602.06948">arXiv:2602.06948</a></li>
+    <li>Lazaridis et al. When Can One Neuron Fix Repetition Loops in LLMs? 2026. <a href="https://arxiv.org/abs/2606.13705">arXiv:2606.13705</a></li>
+    <li>Li et al. Self-Compacting Language Model Agents. 2026. <a href="https://arxiv.org/abs/2606.23525">arXiv:2606.23525</a></li>
+    <li>Liu, C. et al. NetConfArena: An Executable Benchmark for LLM Agents in Closed-Loop Network Configuration. 2026. <a href="https://arxiv.org/abs/2608.23179">arXiv:2608.23179</a></li>
+    <li>Liu, J. et al. When History Fails to Become Experience: Action Calibration in Language Agents. 2026. <a href="https://arxiv.org/abs/2610.02769">arXiv:2610.02769</a></li>
+    <li>Liu et al. Practical Online KV Cache Compaction for LLM Agents. 2026. <a href="https://arxiv.org/abs/2608.00902">arXiv:2608.00902</a></li>
+    <li>Liu et al. Budget-Aware Tool Use Enables Effective Agent Scaling (BATS). 2025. <a href="https://arxiv.org/abs/2511.17006">arXiv:2511.17006</a></li>
+    <li>Muennighoff, N. et al. s1: Simple Test-Time Scaling. 2025. <a href="https://arxiv.org/abs/2501.19393">arXiv:2501.19393</a></li>
+    <li>Ning et al. HRBench. 2026. <a href="https://arxiv.org/abs/2605.28398">arXiv:2605.28398</a></li>
+    <li>Olsson, C. et al. In-context Learning and Induction Heads. 2022. <a href="https://arxiv.org/abs/2209.11895">arXiv:2209.11895</a></li>
+    <li>Otani et al. Do Agents Need to Plan Step-by-Step? CAIS 2026. <a href="https://arxiv.org/abs/2605.08477">arXiv:2605.08477</a></li>
+    <li>Pipis, C. et al. Wait, Wait, Wait&hellip; Why Do Reasoning Models Loop? ICML 2026. <a href="https://arxiv.org/abs/2512.12895">arXiv:2512.12895</a></li>
+    <li>Polezhaev et al. Caddie. 2026. <a href="https://arxiv.org/abs/2610.09858">arXiv:2610.09858</a></li>
+    <li>Qwen Team. Qwen3 Technical Report. 2025. <a href="https://arxiv.org/abs/2505.09388">arXiv:2505.09388</a></li>
+    <li>Ross, S., Gordon, G. J. &amp; Bagnell, J. A. A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning. AISTATS 2011. <a href="https://arxiv.org/abs/1011.0686">arXiv:1011.0686</a></li>
+    <li>Russell, S. &amp; Wefald, E. Principles of Metareasoning. Artificial Intelligence 49 (1991), 361&ndash;395. <a href="https://doi.org/10.1016/0004-3702(91)90015-C">doi:10.1016/0004-3702(91)90015-C</a></li>
+    <li>Sethi et al. Fabrication After Tool Failure. 2026. <a href="https://arxiv.org/abs/2609.14758">arXiv:2609.14758</a></li>
+    <li>Sinha, A. et al. The Illusion of Diminishing Returns: Measuring Long Horizon Execution in LLMs. ICLR 2026. <a href="https://arxiv.org/abs/2509.09677">arXiv:2509.09677</a></li>
+    <li>Sun et al. Second Thought. 2026. <a href="https://arxiv.org/abs/2608.13667">arXiv:2608.13667</a></li>
+    <li>Vijayvargiya et al. Ambig-SWE: Interactive Agents to Overcome Underspecificity in Software Engineering. ICLR 2026. <a href="https://arxiv.org/abs/2502.13069">arXiv:2502.13069</a></li>
+    <li>Wan, Y. et al. Mitigating Conversational Inertia in Multi-Turn Agents. ICML 2026. <a href="https://arxiv.org/abs/2602.03664">arXiv:2602.03664</a></li>
+    <li>Wang, C. et al. Fail-Fast, Restart-Smart: Early Failure Prediction and Restart for SWE Agentic Tasks. 2026. <a href="https://arxiv.org/abs/2608.03222">arXiv:2608.03222</a></li>
+    <li>Wang, S. et al. Demystifying Hybrid Thinking: Can LLMs Truly Switch Between Think and No-Think? 2025. <a href="https://arxiv.org/abs/2510.12680">arXiv:2510.12680</a></li>
+    <li>Xie, S. M., Raghunathan, A., Liang, P. &amp; Ma, T. An Explanation of In-context Learning as Implicit Bayesian Inference. ICLR 2022. <a href="https://arxiv.org/abs/2111.02080">arXiv:2111.02080</a></li>
+    <li>Xu, J. et al. Learning to Break the Loop: Analyzing and Mitigating Repetitions for Neural Text Generation. NeurIPS 2022. <a href="https://arxiv.org/abs/2206.02369">arXiv:2206.02369</a></li>
+    <li>Yang, J. et al. SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering. NeurIPS 2024. <a href="https://arxiv.org/abs/2405.15793">arXiv:2405.15793</a></li>
+    <li>Yang, J. et al. SWE-smith: Scaling Data for Software Engineering Agents. 2025. <a href="https://arxiv.org/abs/2504.21798">arXiv:2504.21798</a></li>
+    <li>Yang, R. et al. Think Fast and Slow: Step-Level Cognitive Depth Adaptation for LLM Agents (CogRouter). 2026. <a href="https://arxiv.org/abs/2602.12662">arXiv:2602.12662</a></li>
+    <li>Yao, S. et al. ReAct: Synergizing Reasoning and Acting in Language Models. ICLR 2023. <a href="https://arxiv.org/abs/2210.03629">arXiv:2210.03629</a></li>
+    <li>Yu, Z. et al. Mismatch Matters: On-Policy Distillation Beyond Token Agreement. 2026. <a href="https://arxiv.org/abs/2608.09836">arXiv:2608.09836</a></li>
+  </ol>
+</footer>
+</article>
+
+</div>
+<div class="tip" id="tip" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  var STRIPS = {"orig14246":[{"k":"new","c":"run_command  ls -R scripts/playwright/separate_openapi_schemas","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat scripts/playwright/separate_openapi_schemas/image01.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat docs_src/separate_openapi_schemas/tutorial001.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  find docs_src -name \"*separate_openapi_schemas*\"","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  ls -R docs_src/separate_openapi_schemas","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat docs_src/separate_openapi_schemas/tutorial002.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"separate_input_output_schemas\" fastapi/","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/openapi/utils.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_openapi_operation\" fastapi/openapi/utils.py","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":5},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":6},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":7},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":8},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":9},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":10},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":11},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":12},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":13},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":14},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":15},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":16},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":17},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":18},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":19},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":20},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":21},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":22},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":23},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":24},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":25},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":26},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":27},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":28},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":29},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":30},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":31},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":32},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":33},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":34},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":35},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":36},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":37},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":38},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":39},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":40},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":41},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":42},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":43},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":44},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":45},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":46},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":47},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":48},{"k":"copy","c":"run_command  grep -n \"get_openapi_route\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":49},{"k":"new","c":"submit_patch","r":"ok","b":0,"z":0,"n":1}],"ctrl14246":[{"k":"new","c":"run_command  ls -R scripts/playwright/separate_openapi_schemas","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  scripts/playwright/separate_openapi_schemas/image01.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  find docs_src -name \"separate_openapi_schemas\"","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  ls docs_src/separate_openapi_schemas","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  docs_src/separate_openapi_schemas/tutorial001.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"read_file  docs_src/separate_openapi_schemas/tutorial002.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"search_similar_code  separate_input_output_schemas","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  find tests -name \"*separate_input_output_schemas*\"","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  tests/test_openapi_separate_input_output_schemas.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  pytest tests/test_openapi_separate_input_output_schemas.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"separate_input_output_schemas\" fastapi/applications.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/applications.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_openapi\" fastapi/openapi/utils.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/openapi/utils.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"separate_input_output_schemas\" fastapi/openapi/utils.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_schema_from_model_field\" fastapi/_compat/__init__.py fastapi/_compat/main.py fastapi/_compat/m...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/main.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '314,337p' fastapi/_compat/main.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '174,250p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":1,"n":1},{"k":"new","c":"run_command  sed -n '251,350p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  find tests -name \"*schema*\"","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"read_file  tests/test_openapi_separate_input_output_schemas.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"return","c":"run_command  pytest tests/test_openapi_separate_input_output_schemas.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from fastapi.testclient import TestClient from p...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '280,310p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '200,220p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '221,230p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '231,240p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '205,215p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '216,225p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '216,222p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from fastapi.testclient import TestClient from p...","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  sed -n '216,225p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from fastapi.testclient import TestClient from p...","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  sed -n '216,225p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from fastapi.testclient import TestClient from p...","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  sed -n '216,225p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from fastapi.testclient import TestClient from p...","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  sed -n '216,225p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":1,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_issue.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"edit failed (text not found)","b":0,"z":0,"n":1},{"k":"return","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":1,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":1,"z":0,"n":1},{"k":"new","c":"submit_patch","r":"ok","b":0,"z":0,"n":1}],"block14246":[{"k":"new","c":"run_command  ls -R scripts/playwright/separate_openapi_schemas","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat scripts/playwright/separate_openapi_schemas/image01.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  ls docs_src/separate_openapi_schemas/","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  docs_src/separate_openapi_schemas/tutorial001.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"separate_openapi_schemas\" fastapi/openapi/","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"separate\" fastapi/openapi/","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/openapi/utils.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '151,558p' fastapi/openapi/utils.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '300,558p' fastapi/openapi/utils.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_schema_from_model_field\" fastapi/_compat/__init__.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/main.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_schema_from_model_field\" fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"GenerateJsonSchema\" fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -n \"GenerateJsonSchema\" fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":2},{"k":"new","c":"run_command  sed -n '200,220p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '221,230p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel from typing impor...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel from typing impor...","r":"printed output","b":0,"z":1,"n":1},{"k":"new","c":"run_command  grep -n \"generate_definitions\" fastapi/openapi/utils.py","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"generate_definitions\" fastapi/openapi/","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"generate_definitions\" fastapi/","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel from typing impor...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel, Field from typin...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel, Field from typin...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel, Field from typin...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from fastapi import FastAPI from pydantic import BaseModel, Field from typin...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_flat_models_from_fields\" fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_flat_models_from_field\" fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"get_flat_models_from_model\" fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_issue.py","r":"printed output","b":0,"z":1,"n":1},{"k":"new","c":"read_file  fastapi/_compat/v2.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  sed -n '200,300p' fastapi/_compat/v2.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_issue.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  fastapi/_compat/v2.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_issue.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 -c \"from fastapi._compat.v2 import get_json_schema; from pydantic import BaseModel; import json; cl...","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"submit_patch","r":"ok","b":0,"z":0,"n":1}],"ctrl12942":[{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from typing import Any, Literal, Annotated from pydantic import BaseModel fr...","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from typing import Any, Literal, Annotated from pydantic import BaseModel, D...","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from typing import Any, Literal, Annotated, Union from pydantic import BaseM...","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from typing import Any, Literal, Annotated, Union from pydantic import BaseM...","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -n \"analyze_param\" fastapi/dependencies/utils.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/dependencies/utils.py","r":"ok (long file, cut)","b":0,"z":0,"n":1},{"k":"new","c":"read_file  fastapi/dependencies/utils.py","r":"ok","b":0,"z":1,"n":1},{"k":"new","c":"write_file  reproduce_bug.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_bug.py","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"run_command  ls fastapi/dependencies/","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"class Body\" fastapi/","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  reproduce_bug.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_bug.py","r":"failed with an error","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  reproduce_bug.py","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  python3 reproduce_bug.py","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":1},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":2},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":3},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":4},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":5},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":6},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":7},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":8},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":9},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":10},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":11},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":12},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":13},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":14},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":15},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":16},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":17},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":18},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":19},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":20},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":21},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":22},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":23},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":24},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":25},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":26},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":27},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":28},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":29},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":30},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":31},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":32},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":33},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":0,"z":0,"n":34},{"k":"copy","c":"edit_file  reproduce_bug.py","r":"edit failed (text not found)","b":1,"z":0,"n":35}],"block12942":[{"k":"new","c":"run_command  cat <<EOF > reproduce_issue.py from typing import Any, Literal, Annotated from pydantic import BaseModel fr...","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"search_similar_code  get_query_params","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"search_similar_code  get_endpoint_params","r":"ok","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"Annotated\" fastapi/params.py fastapi/routing.py fastapi/dependencies/utils.py | head -n 20","r":"printed output","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"new","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":5},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":6},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":7},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":8},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":9},{"k":"new","c":"run_command  grep -r \"get_model_fields\" fastapi/ | head -n 20","r":"printed output","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":5},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":5},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":6},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":5},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":5},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":4},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" fastapi/ | head -n 20","r":"printed nothing","b":0,"z":0,"n":1},{"k":"return","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":0,"z":0,"n":1},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":2},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":3},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":4},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":5},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":6},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":7},{"k":"copy","c":"run_command  grep -r \"get_endpoint_params\" .","r":"found nothing (exit 1, no output)","b":1,"z":0,"n":8},{"k":"new","c":"submit_patch","r":"ok","b":0,"z":0,"n":1}]};
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var KIND = { "new": "New call", "return": "Repeat of an earlier call", "copy": "Copy of the call just before", "bad": "Malformed call" };
+  var tip = document.getElementById("tip");
+
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function text(parent, x, y, str, cls, anchor) {
+    var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "start" }, parent);
+    t.textContent = str;
+    return t;
+  }
+  function ordinal(n) {
+    var s = ["th", "st", "nd", "rd"], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  /* tooltip: lines are [className, text]; values first, set with textContent */
+  function showTip(lines, cx, cy) {
+    tip.textContent = "";
+    lines.forEach(function (ln) {
+      var d = document.createElement("div");
+      d.className = ln[0];
+      d.textContent = ln[1];
+      tip.appendChild(d);
+    });
+    tip.hidden = false;
+    var r = tip.getBoundingClientRect();
+    var x = cx + 14, y = cy + 16;
+    if (x + r.width > window.innerWidth - 8) x = Math.max(8, cx - r.width - 14);
+    if (y + r.height > window.innerHeight - 8) y = Math.max(8, cy - r.height - 14);
+    tip.style.transform = "translate(" + Math.round(x) + "px," + Math.round(y) + "px)";
+  }
+  function hideTip() { tip.hidden = true; }
+
+  /* ---------- call timelines ---------- */
+  function strip(host) {
+    var rows = STRIPS[host.dataset.strip];
+    var brackets = JSON.parse(host.dataset.brackets || "[]");
+    var endLabel = host.dataset.end || "";
+    var active = -1, geo = null;
+
+    function tipLines(i) {
+      var r = rows[i];
+      var head = KIND[r.k] + (r.k === "copy" ? ", " + ordinal(r.n) + " in a row" : "");
+      var lines = [["h", "Call " + i + " of " + (rows.length - 1)], ["v", head], ["m", r.c], ["", "→ " + r.r]];
+      if (r.b) lines.push(["h", "The budget warning is in this result"]);
+      return lines;
+    }
+
+    function render() {
+      host.textContent = "";
+      var W = Math.max(260, Math.floor(host.clientWidth));
+      var n = rows.length, gap = W < 520 ? 1 : 2;
+      var cw = (W - gap * (n - 1)) / n, step = cw + gap;
+      var levels = brackets.reduce(function (m, b) { return Math.max(m, (b[3] || 0) + 1); }, 0);
+      var top = levels ? levels * 20 + 6 : 4;
+      var ch = W < 520 ? 18 : 24;
+      var y0 = top, yb = y0 + ch + 4, yt = yb + 18, yl = yt + 16;
+      var xOf = function (i) { return i * step; };
+
+      var svg = el("svg", { width: W, height: 10, viewBox: "0 0 " + W + " 10", role: "img",
+                            "aria-label": host.getAttribute("aria-label") || "Call timeline" }, host);
+
+      rows.forEach(function (r, i) {
+        el("rect", { x: xOf(i).toFixed(2), y: y0, width: Math.max(1, cw).toFixed(2), height: ch,
+                     rx: Math.min(2, cw / 3).toFixed(2), "class": "k-" + r.k }, svg);
+      });
+      /* budget warning: a rule under the cells whose result carried it */
+      for (var i = 0; i < n; i++) {
+        if (!rows[i].b) continue;
+        var j = i;
+        while (j + 1 < n && rows[j + 1].b) j++;
+        el("rect", { x: xOf(i).toFixed(2), y: yb, width: (xOf(j) + cw - xOf(i)).toFixed(2), height: 3, "class": "bw" }, svg);
+        i = j;
+      }
+      /* compactions: a rule in the gap after the call */
+      var marks = [];
+      rows.forEach(function (r, i) {
+        if (r.z && i < n - 1) {
+          var x = xOf(i) + cw + gap / 2;
+          el("line", { x1: x.toFixed(2), x2: x.toFixed(2), y1: y0 - 5, y2: y0 + ch + 5, "class": "comp" }, svg);
+          marks.push({ x: x, label: "compaction", anchor: "middle" });
+        }
+      });
+      var firstB = rows.findIndex(function (r) { return r.b; });
+      if (firstB >= 0) marks.push({ x: xOf(firstB), label: "budget warning", anchor: "start" });
+      if (endLabel) marks.push({ x: xOf(n - 1) + cw, label: endLabel, anchor: "end" });
+
+      /* brackets above the cells */
+      brackets.forEach(function (b) {
+        var s = b[0], e = b[1], lv = b[3] || 0;
+        var y = y0 - 8 - lv * 20, x1 = xOf(s), x2 = xOf(e) + cw;
+        el("path", { d: "M" + x1.toFixed(2) + "," + (y + 4) + "V" + y + "H" + x2.toFixed(2) + "V" + (y + 4), "class": "brk" }, svg);
+        var t = text(svg, x1, y - 5, b[2], "brk-t");
+        var w = t.getComputedTextLength();
+        if (x1 + w > W) t.setAttribute("x", Math.max(0, W - w).toFixed(2));
+      });
+
+      /* call-number ticks */
+      for (var k = 0; k < n; k += 10) text(svg, xOf(k) + cw / 2, yt, String(k), "tick", "middle");
+      if ((n - 1) % 10 >= 4) text(svg, xOf(n - 1) + cw / 2, yt, String(n - 1), "tick", "middle");
+
+      /* marker labels: greedy rows so they never overlap */
+      var rowsEnd = [];
+      marks.sort(function (a, b) { return a.x - b.x; }).forEach(function (m) {
+        var t = text(svg, m.x, 0, m.label, "mlab", m.anchor);
+        var w = t.getComputedTextLength();
+        var x0 = m.anchor === "start" ? m.x : m.anchor === "end" ? m.x - w : m.x - w / 2;
+        if (x0 < 0) x0 = 0;
+        if (x0 + w > W) x0 = W - w;
+        t.setAttribute("x", x0.toFixed(2));
+        t.setAttribute("text-anchor", "start");
+        var row = 0;
+        while (rowsEnd[row] !== undefined && rowsEnd[row] > x0 - 10) row++;
+        rowsEnd[row] = x0 + w;
+        t.setAttribute("y", yl + row * 14);
+      });
+      var H = yl + Math.max(0, rowsEnd.length - 1) * 14 + 6;
+      svg.setAttribute("height", H);
+      svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+      var ring = el("rect", { x: 0, y: y0 - 2, width: cw + 4, height: ch + 4, rx: 3, "class": "ring", visibility: "hidden" }, svg);
+      var hit = el("rect", { x: 0, y: 0, width: W, height: H, "class": "hit" }, svg);
+      geo = { svg: svg, ring: ring, step: step, cw: cw, y0: y0, ch: ch, n: n };
+
+      function idxAt(evt) {
+        var b = svg.getBoundingClientRect();
+        var x = (evt.clientX - b.left) * (W / b.width);
+        return Math.max(0, Math.min(n - 1, Math.floor(x / step)));
+      }
+      var onPoint = function (evt) {
+        var i = idxAt(evt);
+        place(i);
+        showTip(tipLines(i), evt.clientX, evt.clientY);
+      };
+      hit.addEventListener("pointermove", onPoint);
+      hit.addEventListener("pointerdown", onPoint);
+      hit.addEventListener("pointerleave", function () { if (document.activeElement !== host) { ring.setAttribute("visibility", "hidden"); hideTip(); } });
+      if (active >= 0) place(active);
+    }
+
+    function place(i) {
+      geo.ring.setAttribute("x", (i * geo.step - 2).toFixed(2));
+      geo.ring.setAttribute("width", (geo.cw + 4).toFixed(2));
+      geo.ring.setAttribute("visibility", "visible");
+    }
+    function showAt(i) {
+      active = i;
+      place(i);
+      var b = geo.svg.getBoundingClientRect(), scale = b.width / parseFloat(geo.svg.getAttribute("width"));
+      showTip(tipLines(i), b.left + (i * geo.step + geo.cw / 2) * scale, b.top + (geo.y0 + geo.ch) * scale);
+    }
+    host.addEventListener("keydown", function (evt) {
+      var n = rows.length, i = active;
+      if (evt.key === "ArrowRight") i = Math.min(n - 1, i + 1);
+      else if (evt.key === "ArrowLeft") i = Math.max(0, i < 0 ? 0 : i - 1);
+      else if (evt.key === "Home") i = 0;
+      else if (evt.key === "End") i = n - 1;
+      else if (evt.key === "Escape") { hideTip(); geo.ring.setAttribute("visibility", "hidden"); active = -1; return; }
+      else return;
+      evt.preventDefault();
+      showAt(i);
+    });
+    host.addEventListener("focus", function () {
+      var kb = true;
+      try { kb = host.matches(":focus-visible"); } catch (e) { /* older browsers: treat as keyboard */ }
+      if (kb) showAt(active < 0 ? 0 : active);
+    });
+    host.addEventListener("blur", function () { hideTip(); if (geo) geo.ring.setAttribute("visibility", "hidden"); active = -1; });
+    return render;
+  }
+
+  /* folded call lists, the table view of each timeline */
+  function fillList(ol) {
+    var rows = STRIPS[ol.dataset.list];
+    for (var i = 0; i < rows.length; i++) {
+      var j = i;
+      while (j + 1 < rows.length && rows[j + 1].c === rows[i].c) j++;
+      var li = document.createElement("li");
+      var ix = document.createElement("span");
+      ix.className = "ix";
+      ix.textContent = i === j ? "Call " + i : "Calls " + i + "–" + j;
+      var body = document.createElement("span");
+      var cm = document.createElement("span");
+      cm.className = "cm";
+      cm.textContent = rows[i].c;
+      body.appendChild(cm);
+      var what = i === j ? KIND[rows[i].k].toLowerCase() : (j - i + 1) + " identical calls (the first: " + KIND[rows[i].k].toLowerCase() + ")";
+      body.appendChild(document.createTextNode(" → " + rows[i].r + "; " + what + (rows[j].b ? "; budget warning" : "")));
+      li.appendChild(ix);
+      li.appendChild(body);
+      ol.appendChild(li);
+      i = j;
+    }
+  }
+
+  /* ---------- horizontal bar charts ---------- */
+  function roundedBar(x, y, w, h) {
+    var r = Math.min(4, w / 2, h / 2);
+    if (w <= 0) return "";
+    return "M" + x + "," + y + "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) +
+           "V" + (y + h - r) + "Q" + (x + w) + "," + (y + h) + " " + (x + w - r) + "," + (y + h) + "H" + x + "Z";
+  }
+  function hbars(host, spec) {
+    function render() {
+      host.textContent = "";
+      var W = Math.max(260, Math.floor(host.clientWidth));
+      var right = spec.right ? (spec.rightW || 92) : 0, pad = 40;
+      var plotW = W - right - pad;
+      var x = function (v) { return (v / 100) * plotW; };
+      var barH = 18, barGap = 2, labelH = spec.groupLabels ? 40 : 22, groupGap = 18;
+      var y = 6, layout = [];
+      spec.groups.forEach(function (g) {
+        var gy = y;
+        y += labelH;
+        var bars = g.bars.map(function (b) { var by = y; y += barH + barGap; return { b: b, y: by }; });
+        y += groupGap - barGap;
+        layout.push({ g: g, y: gy, bars: bars });
+      });
+      var axisY = y + 2, H = axisY + 22;
+      var svg = el("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": spec.aria }, host);
+      var ticks = [0, 25, 50, 75, 100];
+      /* gridlines run only beside the bars, so they never cross a row label */
+      layout.forEach(function (L) {
+        if (!L.bars.length) return;
+        var y1 = L.bars[0].y - 3, y2 = L.bars[L.bars.length - 1].y + barH + 3;
+        ticks.forEach(function (t) { el("line", { x1: x(t), x2: x(t), y1: y1, y2: y2, "class": t === 0 ? "base" : "grid" }, svg); });
+      });
+      ticks.forEach(function (t) {
+        text(svg, x(t), axisY + 16, t + "%", "tick", t === 0 ? "start" : t === 100 ? "end" : "middle");
+      });
+      layout.forEach(function (L) {
+        var lab = text(svg, 0, L.y + 15, L.g.label, "glab");
+        if (spec.groupLabels) text(svg, 0, L.y + 32, L.g.sub, "gsub");
+        if (spec.right && L.g.right) {
+          var rt = text(svg, W, L.y + 15, L.g.right, "rtxt", "end");
+          /* no room beside the label: move it to the bar's row, where the right column is kept free */
+          if (lab.getComputedTextLength() + rt.getComputedTextLength() + 12 > W && L.bars.length)
+            rt.setAttribute("y", L.bars[0].y + barH / 2 + 4.5);
+        }
+        L.bars.forEach(function (B) {
+          var b = B.b, w = x(b.value);
+          var bar = el("path", { d: roundedBar(0, B.y, w, barH), "class": b.cls }, svg);
+          var tipEnd = w;
+          if (b.lo !== undefined) {
+            var cy = B.y + barH / 2;
+            el("line", { x1: x(b.lo), x2: x(b.hi), y1: cy, y2: cy, "class": "whisk" }, svg);
+            el("line", { x1: x(b.lo), x2: x(b.lo), y1: cy - 4, y2: cy + 4, "class": "whisk" }, svg);
+            el("line", { x1: x(b.hi), x2: x(b.hi), y1: cy - 4, y2: cy + 4, "class": "whisk" }, svg);
+            tipEnd = Math.max(w, x(b.hi));
+          }
+          text(svg, tipEnd + 6, B.y + barH / 2 + 4.5, b.label, "val");
+          var hitR = el("rect", { x: 0, y: B.y - 1, width: W, height: barH + 2, "class": "hit", tabindex: 0,
+                                  role: "img", "aria-label": b.tip.join(". ") }, svg);
+          var on = function (cx, cy) { bar.classList.add("bar-hot"); showTip([["v", b.tip[0]]].concat(b.tip.slice(1).map(function (s) { return ["", s]; })), cx, cy); };
+          var off = function () { bar.classList.remove("bar-hot"); hideTip(); };
+          hitR.addEventListener("pointermove", function (evt) { on(evt.clientX, evt.clientY); });
+          hitR.addEventListener("pointerdown", function (evt) { on(evt.clientX, evt.clientY); });
+          hitR.addEventListener("pointerleave", off);
+          hitR.addEventListener("focus", function () { var r = hitR.getBoundingClientRect(); on(r.left + Math.min(r.width, w + 20), r.bottom); });
+          hitR.addEventListener("blur", off);
+        });
+      });
+    }
+    return render;
+  }
+
+  /* theme: light by default; the button switches to dark and remembers it for this browser */
+  var root = document.documentElement, themeBtn = document.getElementById("theme-btn");
+  function setTheme(t, save) {
+    root.setAttribute("data-theme", t);
+    themeBtn.textContent = t === "dark" ? "Light mode" : "Dark mode";
+    themeBtn.setAttribute("aria-pressed", String(t === "dark"));
+    if (save) { try { localStorage.setItem("loop-illustration-theme", t); } catch (e) { /* storage blocked: the choice lasts this visit */ } }
+  }
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem("loop-illustration-theme"); } catch (e) { savedTheme = null; }
+  setTheme(root.getAttribute("data-theme") || savedTheme || "light", false);
+  themeBtn.addEventListener("click", function () { setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark", true); });
+
+  var charts = [];
+  document.querySelectorAll(".strip").forEach(function (h) { charts.push([h, strip(h)]); });
+  document.querySelectorAll(".calllist").forEach(fillList);
+
+  charts.push([document.getElementById("fig-escape"), hbars(document.getElementById("fig-escape"), {
+    groupLabels: true,
+    aria: "Escape rates. Where the model chose not to think: own choice 11%, forced thought 58%. Where it chose to think: own choice 62%, forced thought 63%.",
+    groups: [
+      { label: "Model chose not to think", sub: "114 states in 36 tasks", bars: [
+        { value: 11, lo: 5, hi: 16, label: "11%", cls: "k-own", tip: ["Own choice: 11% escape", "95% interval 5–16%", "114 states in 36 tasks"] },
+        { value: 58, lo: 46, hi: 69, label: "58%", cls: "k-forced", tip: ["Forced thought: 58% escape", "95% interval 46–69%", "114 states in 36 tasks"] } ] },
+      { label: "Model chose to think", sub: "99 states in 34 tasks", bars: [
+        { value: 62, lo: 50, hi: 75, label: "62%", cls: "k-own", tip: ["Own choice: 62% escape", "95% interval 50–75%", "99 states in 34 tasks"] },
+        { value: 63, lo: 51, hi: 76, label: "63%", cls: "k-forced", tip: ["Forced thought: 63% escape", "95% interval 51–76%", "99 states in 34 tasks"] } ] }
+    ] })]);
+
+  charts.push([document.getElementById("fig-ladder"), hbars(document.getElementById("fig-ladder"), {
+    right: true,
+    aria: "At third-or-later copies: thinking on without a thought escapes 3%, the empty thought with thinking off 22%, with thinking on 28%, a forced real thought 69%.",
+    groups: [
+      { label: "Thinking on, the model skips the thought", right: "p(copy) 0.97", bars: [ { value: 3, label: "3%", cls: "k-own", tip: ["3% escape (1 of 36)", "p(copy) 0.97", "Thinking on, no thought written"] } ] },
+      { label: "Empty thought, thinking off (block)", right: "p(copy) 0.47", bars: [ { value: 22, label: "22%", cls: "k-own", tip: ["22% escape (8 of 36)", "p(copy) 0.47", "The empty thought forced, thinking off"] } ] },
+      { label: "Empty thought, thinking on (C-none)", right: "p(copy) 0.39", bars: [ { value: 28, label: "28%", cls: "k-own", tip: ["28% escape (10 of 36)", "p(copy) 0.39", "The empty thought forced, thinking on"] } ] },
+      { label: "Forced real thought (T-open)", right: "p(copy) 0.11", bars: [ { value: 69, label: "69%", cls: "k-forced", tip: ["69% escape (25 of 36)", "p(copy) 0.11", "A thought forced open, at least 32 tokens"] } ] }
+    ] })]);
+
+  charts.push([document.getElementById("fig-drift"), hbars(document.getElementById("fig-drift"), {
+    aria: "Share of calls where the model writes the empty thought itself: calls 2 to 5, 83%; 6 to 10, 59%; 11 to 20, 31%; 21 and later, 19%.",
+    groups: [
+      { label: "Calls 2–5", bars: [ { value: 82.8, label: "83%", cls: "k-own", tip: ["82.8% write it", "Calls 2–5, 436 calls"] } ] },
+      { label: "Calls 6–10", bars: [ { value: 59.1, label: "59%", cls: "k-own", tip: ["59.1% write it", "Calls 6–10, 516 calls"] } ] },
+      { label: "Calls 11–20", bars: [ { value: 31.0, label: "31%", cls: "k-own", tip: ["31.0% write it", "Calls 11–20, 838 calls"] } ] },
+      { label: "Calls 21 and later", bars: [ { value: 19.0, label: "19%", cls: "k-own", tip: ["19.0% write it", "Calls 21 and later, 2,201 calls"] } ] }
+    ] })]);
+
+  charts.push([document.getElementById("fig-lockin"), hbars(document.getElementById("fig-lockin"), {
+    right: true, rightW: 128,
+    aria: "Chance that the next call is a copy: after any one call 2.7%, after two identical calls 77.5%, after three or more 95.7%.",
+    groups: [
+      { label: "After any one call", right: "odds 0.03", bars: [ { value: 2.7, label: "2.7%", cls: "k-copy", tip: ["2.7% are followed by a copy", "2,649 cases", "Odds 0.03"] } ] },
+      { label: "After two identical calls", right: "odds 3.4 (×120)", bars: [ { value: 77.5, label: "77.5%", cls: "k-copy", tip: ["77.5% get a third copy", "71 cases", "Odds 3.4, about 120 times the odds after one call"] } ] },
+      { label: "After three or more", right: "odds 22.5 (×6.5)", bars: [ { value: 95.7, label: "95.7%", cls: "k-copy", tip: ["95.7% get another copy", "1,176 cases", "Odds 22.5, about 6.5 times the odds after two"] } ] }
+    ] })]);
+
+  function renderAll() { charts.forEach(function (c) { if (c[0]) c[1](); }); }
+  renderAll();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderAll);
+  if (window.ResizeObserver) {
+    var lastW = new Map();
+    var ro = new ResizeObserver(function (entries) {
+      entries.forEach(function (en) {
+        var w = Math.floor(en.contentRect.width);
+        if (lastW.get(en.target) === w) return;
+        lastW.set(en.target, w);
+        var c = charts.find(function (c) { return c[0] === en.target; });
+        if (c) c[1]();
+      });
+    });
+    charts.forEach(function (c) { if (c[0]) ro.observe(c[0]); });
+  }
+  window.addEventListener("scroll", hideTip, { passive: true });
+})();
+</script>
+</body>
+</html>
