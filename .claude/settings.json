@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -I -c ' *)",
+      "Bash(python -I -c \"import json; d=json.load\\(open\\('dose.json'\\)\\); print\\(list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(python -I C:/Users/usp78/AppData/Local/Temp/claude/c--Users-usp78-Desktop-Gemma4-challenge-Gemma4-paper-track/70a6671c-d0e7-4f2b-bea8-0fd4e57b7195/scratchpad/scripts/dose_dig.py C:/Users/usp78/AppData/Local/Temp/claude/c--Users-usp78-Desktop-Gemma4-challenge-Gemma4-paper-track/70a6671c-d0e7-4f2b-bea8-0fd4e57b7195/scratchpad/dose_run)",
+      "Bash(git diff *)"
+    ]
+  }
+}

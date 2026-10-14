@@ -1,6 +1,6 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result (section 3). -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
@@ -8,6 +8,7 @@
 - Where T-think skipped the thought, a forced thought (T-open) escapes 58% of the time, against 11% (114 states in 36 tasks; paired difference +47 points, 95% interval 33 to 61). Where T-think thought, the two escape 62% and 63%.
 - An escape is one step ahead: a call that is neither stale nor malformed, not yet a useful one.
 - The always-block template reshapes loops over whole tasks: the stale share falls 5–6 points and runs fragment. Resolution doesn't move: 37 of 109 in both arms.
+- Lock-in is partly self-reinforcement (round 2's G1, 2026-10-14). At fixed histories, identical copies raise the next copy: p(c) is 0.002, 0.098 and 0.434 for 1, 2 and 4 copies, while re-spelled copies of the same search stay near 0.03. But four forced copies give 43%, while in the closed loop a run of three or more gets one more copy 96% of the time. So the observed curve also reflects which histories loop.
 - "A stuck agent is a confident agent" stays an interpretation. The replay measures the probability of the recorded call, not calibrated confidence. `v2`'s advisor fits it: the model calls the advisor before edits, and almost never right after a bad call.
 - Why loops happen, with the math, the caveats and the references: [loops_reason_10_13.md](loops_reason_10_13.md).
 
@@ -81,7 +82,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-Nothing here is built or queued yet.
+G1 ran on 2026-10-14; its result is at the end of its section. Nothing else here is built or queued yet.
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -104,9 +105,9 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 - **Basis of the estimates:** round 1's measured jobs: control 1 h 19 min and always-block 1 h 28 min for 109 tasks at 4 lanes; T-open 1 h 20 min for 581 states. G1 and G2 generate no thoughts, so they should land at the low end.
 - **The binding constraints:** code, checks, queue and writing time, not GPUs.
 
-### G1. Controlled repetition (the dose test, drafted 2026-10-13)
+### G1. Controlled repetition (the dose test, drafted 2026-10-13, run 2026-10-14)
 
-[dose.py](dose.py), with [dose.slurm](dose.slurm) and [submit_dose.sh](submit_dose.sh). Not yet run on Explorer.
+[dose.py](dose.py), with [dose.slurm](dose.slurm) and [submit_dose.sh](submit_dose.sh). Ran on Explorer on 2026-10-14; the result is at the end of this section.
 
 - **Histories:** up to 60 contexts, each ending just after the first occurrence of an empty read-only search c.
   - "Empty" means nothing on stdout or stderr: exit 1 (grep found nothing), or exit 0 behind a pipe or from find.
@@ -146,6 +147,22 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
   - dose2 and dose4 above dose1, with para below dose: copies of the identical call raise the next copy at a fixed history.
   - para matching dose: repeating the same search in any form does it, or the added length and failures do.
   - Neither moving p(c): the lock-in curve's rise is selection. Drop the reinforcement wording, and keep the observed persistence.
+
+**Result (2026-10-14):** the first reading holds, at a much smaller size than the closed-loop curve. The table and what it means are in [loops_reason_10_13.md](loops_reason_10_13.md) §1.
+- **The run:** jobs 11065759–62 at `6c16369`, all exit 0. Wheelhouse 31 (vLLM 0.19.1, transformers 5.13.1), one A100-SXM4-80GB.
+  - prep took 2 min; every template check passed.
+  - The first GPU job took 1 h 05: score 58 min, sample 6 min. The second found nothing left to do.
+  - Outputs in `$R/paper/loops/dose_baseline_nothink_args_v30_zip/`. The local analysis beyond `dose.md` (exact probabilities, spread, splits) ran from a session scratchpad, not from this repo.
+- **The histories:** 60 in 56 tasks: 32 from Gate 1's run and 28 from `ctrl`. 39 are fastapi, 16 rich, 4 requests and 1 httpx. 52 are `err_silent` and 8 `ok_empty`. All 60 have `para2`, 56 have `para4` and 24 have `var2`.
+- **The numbers:** p(c) at the run's sampling is 0.002, 0.098 and 0.434 for `dose1`, `dose2` and `dose4`; `para2` 0.027 and `para4` 0.038; `var2` 0.000. The paired dose4 − para4 is +0.376 (0.258 to 0.496).
+- **The scored and sampled measures agree.** Sampled exact copies are 0%, 12% and 41%. Per history, at dose4, scored and sampled correlate at 0.95.
+- **Two quirks in `dose.md`:**
+  - One history's p(c) is 1.126 at the run's sampling. The two paths are scored in separate requests, and T = 0.2 amplifies the small differences between requests near a tie. Its exact probabilities sum to 0.55. No other sum is above 1, for any arm, target or measure, and capping this one at 1 moves dose4's mean by 0.002.
+  - The "student copied next" row is empty, because none of the 60 recorded next calls copied c. Splitting by `next_cls` (53 `after_miss`, 7 `return_to_earlier`) would say more.
+- **For the rest of round 2:**
+  - **G2:** G1's para arms vary the call and keep the result. G2 varies the result and keeps the call, so together they say which half of the block has to match.
+  - **G3:** G1 predicts lock-in survives T = 1, at a lower level.
+  - **A cheap add-on, not built:** score the empty-thought tokens alone. That gives p(c) after a forced thought at each dose, the always-block lever on controlled histories.
 
 ### G2. What the result means, against its surface form
 
@@ -342,3 +359,4 @@ No GPU, and nothing queued on Explorer. The test data sits in a session scratchp
   - prep under transformers 5;
   - the `ctrl` run's shards, whose layout loop_report.py already reads;
   - anything with Explorer's paths.
+- All four were then covered by the Explorer run of 2026-10-14 (§3, G1's result), with vLLM 0.19.1 and transformers 5.13.1.

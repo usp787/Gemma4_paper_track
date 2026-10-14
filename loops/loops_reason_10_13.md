@@ -11,15 +11,19 @@
      paired intervals (20,000 task resamples), the always-block table, the seed count and the fastapi_12942 traces. That
      script sits in a session scratchpad, not in this repo; so do the 10-12 checks behind the stuck-stretch counts.
      The citations were checked against the primary texts on 2026-10-13.
-     loop_illustration.html's "Why loops happen" section still has the wording from before this revision. -->
+     loop_illustration.html's "Why loops happen" section still has the wording from before this revision.
+     Updated 2026-10-14 with round 2's G1, the dose test (the summary table, sections 1-4, 7 and 8), from
+     $R/paper/loops/dose_baseline_nothink_args_v30_zip (dose.md, score.jsonl, samples.jsonl, states.jsonl). The
+     exact probabilities, the spread and the splits come from a local analysis of those files in a session
+     scratchpad, not in this repo. The review below is unchanged. -->
 
 **The question:** why does Gemma 4 31B with thinking off lock onto one tool call, and why do only some levers break the lock?
 
-**The short answer:** five principles, one for each stage of the loop. One is a causal effect we measured; the others are observed patterns, mechanisms known from neighbouring settings, or hypotheses.
+**The short answer:** five principles, one for each stage of the loop. Two are causal effects we measured; the others are observed patterns, mechanisms known from neighbouring settings, or hypotheses.
 
 | Stage | Principle | Status |
 |---|---|---|
-| Lock-in | The longer a run of identical calls, the likelier one more copy. | Observed here. Self-reinforcement, established in text, is the candidate cause; not isolated here |
+| Lock-in | The longer a run of identical calls, the likelier one more copy. | Observed here. Isolated at fixed histories (round 2's G1): identical copies raise the next copy, re-spelled ones don't. The effect is far below the observed curve, so the curve also reflects which histories loop |
 | Copying | The repeated tool result is the cue for the copy (induction). | Hypothesis, with a rival: format or mode conditioning |
 | Hardening | Low temperature concentrates each token's choice. | Established; large at our replay states; its share of closed-loop lock-in is untested |
 | Onset | Loops start at searches that come back empty, then get re-sent unchanged. | Seen in our traces |
@@ -34,7 +38,7 @@
 
 ## 1. Lock-in: persistence rises with run length
 
-*Status: observed here. Self-reinforcement is established in text generation; our curve is consistent with it but doesn't isolate it.*
+*Status: observed here. Self-reinforcement is established in text generation, and round 2's G1 isolates it here at fixed histories, one step ahead (2026-10-14). There, copies raise the next copy far less than the curve does, so the curve also reflects which histories loop.*
 
 The control arm's numbers over 109 tasks, dev and rich pooled (`loops.json`):
 
@@ -52,7 +56,48 @@ The control arm's numbers over 109 tasks, dev and rich pooled (`loops.json`):
   - Holtzman et al.'s Fig. 4 repeats "I don't know." 200 times: the phrase's probability rises with each repetition.
   - Xu et al. repeat sentences 100 times: the probability of repetition rises "almost monotonically", then "stabilizes around a certain ceiling value".
   - A Pólya urn, where every ball drawn adds another of its colour, is a picture of this, not evidence.
-- **The interventional evidence here:** at the same replay states, deleting the earlier copies (dedup) takes p(copy) at 3rd-or-later copies from 0.94 to 0.14 (gate1.md §2). Dedup also shortens the context and moves positions, so it isn't a clean dose test. Round 2's G1 adds 1, 2 or 4 copies to fixed histories ([README.md](README.md) §3).
+- **The interventional evidence here:** at the same replay states, deleting the earlier copies (dedup) takes p(copy) at 3rd-or-later copies from 0.94 to 0.14 (gate1.md §2). Dedup also shortens the context and moves positions, so it isn't a clean dose test. Round 2's G1 is one: the next bullet.
+- **The dose test (round 2's G1, run 2026-10-14; design and run record in [README.md](README.md) §3).**
+  - **The design:** 60 histories in 56 tasks, each ending just after the first occurrence of an empty read-only search $c$. They come from Gate 1's run and the control arm, picked by history whatever the student did next.
+  - **The arms:** each adds blocks that carry the identical result and differ only in the call:
+    - `dose`: more copies of $c$;
+    - `para`: the same search re-spelled (quotes, flag order, long flags, `-e`), at matched length;
+    - `var2`: a different empty search from the same task, on 24 histories.
+  - **What is measured:** p(c) of the next call, along both ways a call starts (straight away, or after the empty thought the model writes itself). It is given at the run's sampling, rebuilt from the top 20 logprobs, and as the model's exact probability (T = 1, no truncation). Each arm also gets 3 samples per history at the run's sampling.
+
+| Arm | Added tokens | p(c), run's sampling | p(c), exact | Sampled: exact copy | Sampled: escape |
+|---|---|---|---|---|---|
+| `dose1`: $c$ once (the history) | 0 | 0.002 | 0.006 | 0% | 92% |
+| `dose2`: $c$ twice in a row | 80 | 0.098 | 0.052 | 12% | 79% |
+| `dose4`: four in a row | 239 | 0.434 | 0.307 | 41% | 53% |
+| `para2`: $c$, then one re-spelling | 80 | 0.027 | 0.009 | 3% | 84% |
+| `para4`: $c$, then three re-spellings | 246 | 0.038 | 0.015 | 4% | 84% |
+| `var2`: $c$, then a different search (24 histories) | 80 | 0.000 | 0.003 | 0% | 97% |
+
+  Paired differences in p(c) at the run's sampling, with 95% intervals from 10,000 resamples of tasks:
+  - dose2 − dose1: +0.096 (0.040 to 0.165);
+  - dose4 − dose2: +0.336 (0.231 to 0.443);
+  - dose4 − para4: +0.376 (0.258 to 0.496);
+  - para4 − dose1: +0.036 (−0.002 to 0.092).
+
+  - **Identical copies raise the next copy at a fixed history.**
+    - In the exact probabilities, p(c) rises from dose1 to dose2 to dose4 in 59 of 60 histories.
+    - The median gain in log-odds is +5.3 from one copy to two, and +5.0 from two to four (+2.5 per added copy there).
+    - Both source runs give the same curve: dose4 0.442 on Gate 1's histories, 0.425 on the control arm's.
+  - **It needs the identical call.**
+    - Re-spelled copies of the same search, with the same empty result, barely move p(c).
+    - They don't raise the re-spelling either: the last added call's p is 0.002 after `para2` and 0.000 after `para4`. Samples repeat the search in any spelling 3–4% of the time (a heuristic normaliser).
+    - Length isn't the cause: `para4` adds as many tokens as `dose4`.
+    - So seeing the same failure four times doesn't by itself make the model retry the search. The whole call has to recur.
+  - **It is far smaller than the observed curve.**
+    - Two forced copies give a third about 10% of the time (scored 0.098, sampled 12%). In the closed loop, after two identical calls in a row, a third follows 77.5% of the time.
+    - Four forced copies give about 43%, against 95.7% at k = 3+.
+    - So on these histories, the copies alone don't reach the curve's height. Histories differ in how sticky they are, and the ones that reach a run in a rollout are likely the sticky ones.
+    - Small groups point the same way. At dose4, p(c) is 0.64 for contexts longer than the median, against 0.23. It is 0.49 in tasks the run didn't resolve (48 histories), against 0.23 (12). It is 0.60 where the student next went back to an earlier call (7), against 0.41 (53).
+  - **What it doesn't show:**
+    - *How to split the curve between reinforcement and selection.* The populations differ. Here: first occurrences of empty searches, picked by history. In the curve: every run of identical calls in the control arm, of any tool.
+    - *That the closed loop behaves the same.* It is one step ahead, on v30 histories scored in v31's serving env.
+    - *Generality across repositories.* 39 of the 60 histories are fastapi, 16 rich.
 - **Run length, as an illustration.** If each call continued the run with a constant probability $q$, the number of further copies $N$ before the first call that isn't one would be geometric:
 
 $$P(N = n) = q^{n}(1-q), \qquad \mathbb{E}[N] = \frac{q}{1-q}$$
@@ -97,21 +142,30 @@ $$P(N = n) = q^{n}(1-q), \qquad \mathbb{E}[N] = \frac{q}{1-q}$$
   - 91% of stale repeats got exactly the result their earlier copy got ([../gate1/README.md](../gate1/README.md)).
   - So the context ends with a result $r$ that appeared before, and the previous time, $r$ was followed by call $c$.
   - On this reading, the repeated result doesn't tell the model to stop. It is the cue to send $c$.
-- **Four observations fit, each with another explanation:**
+- **Four observations fit, each with another explanation.** G1 adds a fifth that narrows the cue:
   1. **p(copy) is higher at 3rd-or-later copies than at 2nd copies.** At T = 1 with top-p 0.95 it is 0.26 at 2nd copies and 0.73 at 3rd-or-later ones (gate1.md §2). At the first repeat, $r$ has never been followed by $c$, so the cue doesn't exist yet. *But* each class is defined by the call the student made, so the two are different, outcome-selected sets of states, not one history with one more repetition. The T = 1 values are also approximate (§3).
   2. **Changing the last result weakens the copy.** The note and the hindsight hint add text to the last tool result. At 3rd-or-later copies they take p(copy) from 0.94 to 0.49 and to 0.45 (gate1.md §2). *But* both change what the result says, and both tell the model what to do ("Do not run it again"), so they don't isolate the surface match.
   3. **The empty thought puts four tokens after the result.** The template strips past empty thoughts, so those tokens never appear in the history, and the end of the context no longer matches the earlier "$r$, then $c$". p(copy) falls from 0.95 to 0.50 on the 40 third-or-later copies where it applies (gate1.md §3). *But* the same four tokens mark the thinking mode. Google's formatting notes say to "consider adding an empty thinking token" for edge cases where the larger models open a thought with thinking off, and HF PR #147 proposes the same edit after tool responses. So the result fits mode conditioning as well as a broken cue.
+     - G1 points the same way, without testing it. At four copies, nearly all of p(c) goes straight to the call (0.400 of 0.434).
+     - In the samples, 8 of the 70 that open the empty thought themselves copy $c$ (11%). Of the 110 that don't, 66 do (60%).
+     - The model chooses when to write the thought, so this is selection, not the block's effect.
   4. **The always-block run on `fastapi_12942` alternates two failing greps.**
      - A is `grep -r "get_endpoint_params" .`: exit 1, no output. B is the same search in `fastapi/`, piped to `head`: exit 0 and no output, because `head` hides grep's exit code. These are the two kinds of empty result in §6.
      - The run goes A, B, A, B (calls 5–8), then A ×9. Call 18 is a different grep, which finds something. Calls 19–56 are A ×5, B, A ×6, B, A ×5, B, A ×5, B, A ×4, B, A ×8. Then the agent submits.
      - Whenever B comes back empty, the history already holds "B's result, then A", first at calls 6–7.
      - The alternation is real, but the trace doesn't show that induction causes it.
      - The control run of the same task ends differently: 35 copies of one `edit_file`, each answered "No changes to apply. old_string and new_string are identical."
+  5. **A repeated result followed by a different call doesn't cue that call (G1, §1).**
+     - In `para2` the context ends "$c$, $r$, $c'$, $r$", where $c'$ re-spells $c$. The last time $r$ came back, $c'$ followed it, so a cue read from the result alone predicts $c'$ next.
+     - Its probability is 0.002. After "$c$, $r$, $c$, $r$" in `dose2`, p(c) is 0.098.
+     - So the build-up needs the call to recur, not only the result.
+     - *But* a re-spelling may be a less likely string for the model in any context. Counting any spelling of the search, the samples repeat it 3% of the time after `para2`, against 12% after `dose2`.
+     - Whether the identical result is needed as well is G2's question.
 - **The Bayesian version is an analogy.** Xie et al. derive in-context learning as implicit Bayesian inference over a latent concept. They assume pretraining data drawn from a mixture of hidden Markov models, and a model that fits that distribution exactly. Read the agent's past calls as examples of "what this agent does here", and each copy is more evidence for "it sends $c$". But self-generated, correlated actions aren't independent evidence, so this doesn't derive §1's curve.
 - **Agents show the same behaviour, without a settled mechanism.**
   - Sinha et al. show self-conditioning by injecting errors into the history at chosen rates.
   - Wan et al. find that agents "mimic their own previous responses as few-shot examples", and tie it to diagonal attention. They "do not claim definitive causal identification".
-- **The test is round 2's G2** ([README.md](README.md) §3), a 2 × 2 replay factorial:
+- **The test is round 2's G2** ([README.md](README.md) §3). G1 varied the call and kept the result; G2 is a 2 × 2 replay factorial that varies the result and keeps the call:
   - the repeated results either keep their surface form or get varying arbitrary IDs;
   - they carry either neutral text or a faithful reading of the result.
   - One more context keeps the empty thought in the history, which separates a broken cue from mode conditioning.
@@ -156,6 +210,10 @@ The replay scores the student's recorded call at the same states under both samp
 - **The limit of the fix.** At 3rd-or-later copies the recorded copy keeps 0.73 at T = 1, so a higher temperature would likely weaken lock-in, not remove it.
   - The only closed-loop data at T = 1 is `agentic_v2` on v28, a different prompt. It still locked in at 73%.
   - Round 2's G3 adds the matched `off_args` arm at Google's T = 1.0 ([README.md](README.md) §3; [literature.md](literature.md) §6).
+- **At fixed histories (G1, §1):**
+  - The dose effect is in the model's own probabilities: exact p(c) is 0.006, 0.052 and 0.307 for one, two and four copies. So it isn't the sampler's doing, and G3's T = 1 arm should still lock in, less often.
+  - T = 0.2 polarises the histories. At four copies, at the run's sampling, 27 of 60 have p(c) above 0.5 and 27 below 0.01. In the exact probabilities it's 14 and 1.
+  - Scored and sampled copy rates agree there (0.098 against 12%, 0.434 against 41%), so the top-20 rebuild holds at T = 0.2 on these states. That doesn't settle the T = 1 rebuild.
 
 ## 4. Loops start at searches that come back empty
 
@@ -172,6 +230,7 @@ The replay scores the student's recorded call at the same states under both samp
   1. The model searches for something it strongly expects, such as a plausible function name that isn't in the file (`get_openapi_route`).
   2. The empty result contradicts that expectation, but gives little text to condition on. In `off_args`'s first v30 run, 270 of the 580 repeated `run_command` calls got nothing back.
   3. After an empty search, the next call is a variant 78% of the time and a copy 1%. When the variants fail too, the model returns to its first and most likely query: 114 of 131 chains of bad calls start by re-sending a call from 2 or more calls back.
+     - G1 agrees at fixed histories (§1). At the first occurrence of an empty search, p(c) is 0.002, and none of the 60 recorded next calls copies it. Loops rarely start with a copy of the first failure.
 - **Agents use action–outcome pairing only modestly.** Liu et al. shuffle which past action goes with which observation.
   - Task success falls by only 2.55 points overall (46.39% → 43.84%; 0.30–5.40 points by model). That suggests limited use of the pairings, not none.
   - Their two fixes differ. Outcome labels on past actions ("Causal Transition") raise success to 48.25%. Generated experience notes cut next-action repetition the most, but lower success to 45.01%.
@@ -263,6 +322,10 @@ Each lever we tested is meant to change one part of it, and changes more. The nu
 | Forced thought (T-open) | the context the terms are computed on | the prompt's mode, the decoding constraints, and the computation available | 0.94 → 0.12 (escape 70%) |
 
 - The table organises the levers; it doesn't isolate one term per lever.
+- **G1 measures the copies' pull at fixed histories (§1).**
+  - From two copies to four, the exact log-odds of $c$ rise by a median 2.5 per copy, at T = 1. Read through this model, which isn't fitted, that is $\lambda$'s size there.
+  - In `para2`, the re-spelling $c'$ follows the repeated result, as $m$ requires, but has only one copy. Its probability stays at 0.002, though $c'$ may have a lower prior than $c$.
+  - So in this picture $m$ does little without $n$.
 - **What the model has no term for:** information gain, and which call produced which result.
   - That is a choice made in writing the model, not evidence that Gemma represents neither.
   - In this picture, new information would act there: an informative empty result, file locations, or a restart that keeps the earlier diff.
@@ -282,14 +345,15 @@ Each lever we tested is meant to change one part of it, and changes more. The nu
   - an entropy trigger can fail on confident errors, in one single-turn case (HRBench).
 - **Measured in our data:**
   - persistence rises sharply with the observed run length (§1);
+  - at fixed histories, identical copies raise the next copy and re-spelled ones don't. The effect is far below the observed curve (§1, round 2's G1);
   - at the same replay states, T = 0.2 against T = 1 changes the recorded copy's probability a lot, approximately (§3);
   - where the model skipped thinking, a forced thought raises one-step escape by 47 points (33 to 61) (§5);
   - the always-block template's mixed effects over whole tasks, with resolution unchanged (§1);
   - loops start at empty searches (§4);
   - termination loops in a thinking-on agent (§6).
 - **Fits our data, untested:**
-  - that copies cause further copies in our setting (round 2's G1);
-  - the repeated result as the copy cue, against format conditioning (G2);
+  - how much of the observed curve is selection of sticky histories (G1 shows only that the copies' own effect is far smaller);
+  - the repeated result as the copy cue, against format conditioning (G2). G1 shows the call has to recur too;
   - the A/B alternation as a copied pattern;
   - conversational inertia behind the drift of the self-written empty thought (the compaction test in loop_illustration.html, open question 2).
 - **Not measured yet:**
