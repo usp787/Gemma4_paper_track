@@ -95,7 +95,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | | Question | Design | Size | A100-hours (est.) |
 |---|---|---|---|---|
 | A0 | Which failures carry usable feedback? Is the T-open gap a misallocation? | Existing files only (the bonus below) | – | 0 (CPU) |
-| G1 | Do added copies raise p(copy) at a fixed history? | 1, 2 or 4 copies of one call/result block, against a variant control | ~60 histories | 1–2 |
+| G1 | Do added copies raise p(copy) at a fixed history? | 1, 2 or 4 copies of one call/result block, against paraphrases of the same search and, where one exists, a different search | ~60 histories | 1–2 |
 | G2 | Is the cue the result's surface match, or what it means? | 2 × 2 replay factorial with two anchors, plus one empty-thought context | ~120–160 states | 4–6 |
 | G3 | Does lock-in survive T = 1? Do round 1's closed-loop findings replicate? | `ctrl` and `block` at T = 0.2, `ctrl` at T = 1; two passes each, on v31 | 109 tasks × 6 runs | 9–15 |
 | G4 | (conditional) Does the best feedback rendering help over whole tasks? | G2's winner against its matched control, two passes each | 109 tasks × 4 runs | 6–10 |
@@ -104,23 +104,48 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 - **Basis of the estimates:** round 1's measured jobs: control 1 h 19 min and always-block 1 h 28 min for 109 tasks at 4 lanes; T-open 1 h 20 min for 581 states. G1 and G2 generate no thoughts, so they should land at the low end.
 - **The binding constraints:** code, checks, queue and writing time, not GPUs.
 
-### G1. Controlled repetition
+### G1. Controlled repetition (the dose test, drafted 2026-10-13)
 
-- **Histories:** ~60 contexts that end just after the first occurrence of a failing read-only search: exit 1 with no output, or `ok` with no output. They are spread over tasks and picked by the history, whatever the student did next.
-- **Arms:**
-  - the call/result block appears 1, 2 or 4 times in a row at the end;
-  - **variant control:** the same number of added blocks, each a different failing search from the same task with its real result. Length, position and the number of failures match; the call's identity doesn't.
-  - [gate1.py](../gate1/gate1.py)'s `call_blocks` and `dedup` already cut and splice these blocks at the token level.
+[dose.py](dose.py), with [dose.slurm](dose.slurm) and [submit_dose.sh](submit_dose.sh). Not yet run on Explorer.
+
+- **Histories:** up to 60 contexts, each ending just after the first occurrence of an empty read-only search c.
+  - "Empty" means nothing on stdout or stderr: exit 1 (grep found nothing), or exit 0 behind a pipe or from find.
+  - "First occurrence" means c isn't repeated, and the same search wasn't written differently earlier.
+  - They are picked by the history, whatever the student did next: round-robin over tasks, at most 2 per task.
+  - They come from Gate 1's run (`baseline_nothink_args_v30_zip`) and round 1's `ctrl` run, which adds the rich tasks.
+- **Arms:** each adds blocks that carry the identical result, so they differ only in the call.
+
+| Arm | Blocks after the history | Tests |
+|---|---|---|
+| `dose1` | none: c once | the baseline |
+| `dose2`, `dose4` | c again, once or three times | the dose effect |
+| `para2`, `para4` | one or three paraphrases of c: swapped quotes, flag order, long flags, split flags, a dropped trailing slash, `-e`, `head -N` | the same search, another surface form. Each rule keeps grep's or find's empty output, so the result stays faithful. |
+| `var2` | a different empty search the model made later in the task, with the same constant result | another search: a new pattern, or the same pattern elsewhere. Only where one exists. |
+
+- **Why paraphrases replace the planned variant control:** real variants are scarce. In the two local shards, only 2 of 18 candidates had three different empty searches in their task, and about half had one. So `var2` runs on that subset, and `para` carries the length-, position- and failure-matched control.
 - **Measures:**
-  - p(the block's call) at the next step, scored;
-  - 3 sampled continuations per arm: exact copy, any stale call, malformed, escape.
+  - p(c) at the next step, scored along the two ways a call starts: straight away, or after the empty thought the student writes itself (the template strips it from the history). Both at the run's sampling and at T = 1, rebuilt from the top-20 logprobs. p(the last added call) as well.
+  - 3 samples per arm at the run's sampling, with every arm of a history on the history's seed. Each is judged: c exactly, the same search in any form, stale, malformed, escape, no call.
+  - Paired differences with 95% intervals from resampling tasks: dose2 − dose1, dose4 − dose1, dose − para, var2 against dose.
+- **Checks in prep, on the model's own template:**
+  - k identical calls render as the first one plus k − 1 copies of its block;
+  - a paraphrase renders as its call tokens plus the same response;
+  - every picked call re-encodes to its own tokens;
+  - `dedup` reads an added copy as a copy.
+  A failed template check stops the chain.
+- **Run it:** `GO=1 bash loops/submit_dose.sh` from `~/Gemma4_paper_track`, after `git pull`. Without `GO=1` it prints the jobs and what blocks them.
+  - The chain: prep (CPU), then two chained A100 jobs (2-h limit each; the second finishes what the first left), then the report.
+  - Expect about 1 h of one A100 for 60 histories. That is an estimate: ~1,000 scored contexts of ~12k tokens, plus 3 samples for each of ~360 contexts.
+  - Outputs: `$R/paper/loops/dose_baseline_nothink_args_v30_zip/`, with `prep.md`, `score.jsonl`, `samples.jsonl` and `dose.md`.
+  - It runs on v31's serving env, and every arm is scored there.
 - **Precedents for the design:**
   - Holtzman et al. and Xu et al. repeat a phrase or sentence a chosen number of times in a constructed input.
   - Sinha et al. inject errors into fixed histories at chosen rates.
   - Liu et al.'s fixed-history probe measures p(3rd identical action).
 - **Reading it:**
-  - A dose effect above the variant control supports context reinforcement in these histories.
-  - A null or mixed effect leaves round 1's persistence standing, but drops the reinforcement-law wording.
+  - dose2 and dose4 above dose1, with para below dose: copies of the identical call raise the next copy at a fixed history.
+  - para matching dose: repeating the same search in any form does it, or the added length and failures do.
+  - Neither moving p(c): the lock-in curve's rise is selection. Drop the reinforcement wording, and keep the observed persistence.
 
 ### G2. What the result means, against its surface form
 
@@ -236,6 +261,9 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | [arms.tsv](arms.tsv) | The two arms, in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
 | [loops.slurm](loops.slurm) | The CPU steps: `STEP=template` or `STEP=report` |
 | [submit_loops.sh](submit_loops.sh) | Queues the chain; dry unless `GO=1` |
+| [dose.py](dose.py) | Round 2's G1, the dose test: `prep`, `score`, `sample`, `report`. Imports [../gate1/gate1.py](../gate1/gate1.py) |
+| [dose.slurm](dose.slurm) | The dose test's steps in one job: CPU for prep and report, one A100 for score and sample |
+| [submit_dose.sh](submit_dose.sh) | Queues prep → 2 GPU jobs → report; dry unless `GO=1` |
 | [lit_review_prompt.md](lit_review_prompt.md) | The start prompt of the literature-review session |
 
 The forced thought lives in [../gate1/](../gate1/README.md): `gate1.py --context T-open`, the step `open` of `gate1.slurm` and `submit_gate1.sh`.
@@ -270,3 +298,47 @@ No GPU, and nothing queued on Explorer. The test data was copied to a scratch di
 - **`submit_gate1.sh`'s `open`:** it is refused without `states.jsonl`; otherwise it queues `open` on an A100, then `report` (`afterany`).
 - `bash -n` passes on every changed shell file, the main track's `eval_gpu.slurm` included.
 - **Not run:** `eval_gpu.slurm` with `CHAT_TEMPLATE` (its paths are Explorer's); `make_template.py` under transformers 5 (here 4.57, with a test copy of `tokenizer_config.json` that 4.57 can read); a real vLLM.
+
+## Tested: the dose test (locally, 2026-10-13)
+
+No GPU, and nothing queued on Explorer. The test data sits in a session scratchpad, outside this repo: the model's tokenizer and chat template (with the `tokenizer_config.json` that transformers 4.57 can read), and 2 shards of `off_args`'s first v30 run (14 tasks).
+- **prep, on the real shards:**
+  - all 7 template checks pass;
+  - it picks 12 histories in 7 tasks (2 per task at most). All 12 have three paraphrases, and 3 have a different empty search.
+- **74 checks against a fake vLLM.** The fake copies the last call more readily the more identical copies end the context.
+  - **Reruns:** a task rerun in a later shard is read from there, unless it was skipped at the deadline, as loop_report.py reads runs.
+  - **Paraphrases:** every one keeps its search under the normaliser, and none repeats a command already in the context.
+    - An unquoted grep pattern keeps its trailing slash.
+    - Quotes aren't swapped around `$`.
+  - **What counts as an empty read-only search:**
+    - stderr, exit 2 and a budget warning all disqualify a result;
+    - writes, `sed -i` and scripts aren't searches.
+  - **The contexts of each real history:**
+    - `dose2` is the history plus one copy of its last block, and `dose4` plus three;
+    - `dedup` turns `dose4` back into the history;
+    - each paraphrase and variant parses back to its command.
+  - **score:**
+    - one request per history, arm, target and path;
+    - prefix caching off, prompt logprobs 20;
+    - each request is the arm's context, the path, then the target;
+    - a rerun does nothing.
+  - **sample:**
+    - one request per history and arm, n = 3 at T = 0.2, top-p 0.95, top-k 64, stopping at `<tool_call|>`;
+    - every arm of a history shares the history's seed;
+    - a rerun does nothing.
+  - **The judge, on hand-made continuations:** an exact copy, a copy after the empty thought, a paraphrase, a fresh call, a malformed call and no call.
+  - **The report recovers the fake's built-in effect.**
+    - p(c) at T = 1 is 0.05, 0.40 and 0.80 for one, two and four copies.
+    - At T = 0.2 it sharpens as the formula says: 0.40 becomes 0.116.
+    - para stays low, and the paired dose4 − dose1 interval is above 0.
+    - The same seed gives the same report.
+- **`submit_dose.sh`:** 20 cases against stub `sbatch` and `squeue` and a fake scratch tree.
+  - The chain and its dependencies: prep `afterok`, then the GPU jobs and the report `afterany`.
+  - Resources, `JOBS`, `ARMS` and `PREP_ARGS`, `AFTER`, and runs given as arguments.
+  - Every refusal: missing runs, `calls.jsonl`, model, venv or main checkout; no `states.jsonl` without prep; an unknown step; dose jobs already queued (`FORCE=1` overrides).
+- `bash -n` passes on `dose.slurm` and `submit_dose.sh`.
+- **Not run:**
+  - a real vLLM;
+  - prep under transformers 5;
+  - the `ctrl` run's shards, whose layout loop_report.py already reads;
+  - anything with Explorer's paths.
