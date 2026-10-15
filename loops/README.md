@@ -1,6 +1,6 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result (section 3). -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
@@ -82,7 +82,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14; its result is at the end of its section. Nothing else here is built or queued yet.
+G1 ran on 2026-10-14; its result is at the end of its section. G2 is drafted and tested locally (2026-10-14), not yet run. Nothing else here is built or queued yet.
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -97,7 +97,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 |---|---|---|---|---|
 | A0 | Which failures carry usable feedback? Is the T-open gap a misallocation? | Existing files only (the bonus below) | – | 0 (CPU) |
 | G1 | Do added copies raise p(copy) at a fixed history? | 1, 2 or 4 copies of one call/result block, against paraphrases of the same search and, where one exists, a different search | ~60 histories | 1–2 |
-| G2 | Is the cue the result's surface match, or what it means? | 2 × 2 replay factorial with two anchors, plus one empty-thought context | ~120–160 states | 4–6 |
+| G2 | Is the cue the result's surface match, or what it means? | 2 × 2 replay factorial with two anchors, plus one empty-thought context | ~120–160 states (drafted: 133, in 23 tasks) | 4–6 (drafted: ~2.5) |
 | G3 | Does lock-in survive T = 1? Do round 1's closed-loop findings replicate? | `ctrl` and `block` at T = 0.2, `ctrl` at T = 1; two passes each, on v31 | 109 tasks × 6 runs | 9–15 |
 | G4 | (conditional) Does the best feedback rendering help over whole tasks? | G2's winner against its matched control, two passes each | 109 tasks × 4 runs | 6–10 |
 
@@ -164,34 +164,67 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
   - **G3:** G1 predicts lock-in survives T = 1, at a lower level.
   - **A cheap add-on, not built:** score the empty-thought tokens alone. That gives p(c) after a forced thought at each dose, the always-block lever on controlled histories.
 
-### G2. What the result means, against its surface form
+### G2. What the result means, against its surface form (drafted 2026-10-14)
 
-| | Neutral text | Faithful interpretation |
+[feedback.py](feedback.py), with [feedback.slurm](feedback.slurm) and [submit_feedback.sh](submit_feedback.sh). Tested locally (the last section), not yet run on Explorer.
+
+| | Neutral note | Semantic note |
 |---|---|---|
-| Repeated results keep matching surface forms | placebo | semantic |
-| Repeated results get varying arbitrary IDs | surface break | both |
+| One ID: the repeated results keep matching surface forms | `placebo` | `semantic` |
+| An ID of its own each: varying arbitrary IDs | `break` (the surface break) | `both` |
 
-- **Anchors:** the untouched original and dedup, scored again in the same environment.
-- **States:** picked by history. The last call repeats an earlier one and got the identical result.
-  - The primary subset holds verified deterministic, read-only searches, with the relevant files unchanged.
-  - States are spread over tasks, with some first-failure states (`after_miss`) as controls.
-  - An `ok` with no output is not automatically a failed search.
-- **Renderings:**
-  - Apply each rendering to every relevant result in the history, the same way each time.
-  - The semantic text is a faithful reading of the result, such as "The search completed and found zero matches for this pattern in these files." It carries no instruction ("change approach").
-  - Call strings stay unchanged. Match the added tokens' lengths and positions across cells.
-  - A changing repeat counter changes both meaning and match, so it stays out of the factorial.
-- **Measures:**
-  - exact copies, valid non-stale calls, malformed calls, and changes of approach;
-  - 3 continuations per arm. They sharpen each state's estimate but add no tasks, so compare in pairs, with task-cluster intervals.
-- **One extra context:** keep the empty thought before every past call, as well as at the end.
-  - If the block works by breaking the match between the result and the call, restoring that match in the history should bring the copy back.
-  - If it works through the thinking mode ([Google's formatting notes](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4); HF PR #147), restoring it shouldn't.
+- **States:** picked by history, whatever the student did next.
+  - A repeat state ends just after an empty read-only search c that repeats an earlier identical call and got the identical result, with no write since c first ran: no successful `edit_file` or `write_file`, and no shell write.
+  - c's earlier copies must be in the context; a compaction can hide them.
+  - The controls are first failures, where c ran once, as G1's histories.
+  - They are picked round-robin over task runs. Each round takes one state with c run twice and one with c run 3 or more times, up to 2 of each kind per task run, different calls first. One control per task run.
+- **Runs:** Gate 1's run, its replicate `baseline_nothink_args_v30_zip_r2`, and round 1's `ctrl`.
+  - The replicate has the same zip (`532374430fe2`), wheelhouse 30, harness signature and vLLM build as Gate 1's run.
+  - Only 23 tasks have a repeat state at all, so the replicate adds task runs, not tasks. The intervals rest on those 23 clusters.
+- **The relevant results R:** every result in the context identical to c's, from a command where an empty result means "no match" (`faithful_miss`).
+  - That leaves out inverted searches (`-v`, `-L`), which find nothing when every line matched. For exit 0, it also leaves out a quiet grep (`-q` exits 0 on a match), `xargs`, and a `find` that acts on what it finds.
+  - An identical result from another command, such as a `sed -i` that printed nothing, stays as recorded.
+  - c itself must be a faithful miss.
+- **The renderings:** each adds two keys at the end of every result in R's JSON, where the harness puts its budget warning: `"note"`, then `"id"`.
+  - The neutral note: "The tool server returned this response to the agent in the current session."
+  - The semantic note: "The search completed and found zero matches for this pattern in these paths." That's the plan's wording, with "paths" so it reads right for `find` too. Both notes are 14 tokens, and neither tells the model what to do.
+  - IDs are 8 digits, one token each, drawn from the state's key. Under "one ID", every result gets the ID that the last result has in `break`. So `placebo` and `break` end with identical tokens and differ only in whether the earlier results match the last one.
+  - Every call stays as recorded, and the four cells add the same tokens to the same results.
+- **The other arms:**
+  - `orig` and `dedup`: the anchors, scored again in the same environment;
+  - `block`: orig, then the empty thought (Gate 1's block, the always-block template's prefill);
+  - `think_all`: the empty thought wherever a past model output starts (after the model-turn header and after each tool response), and at the end.
+  - If the block works by breaking the match between "r, then c" in the history and the end of the context, `think_all` restores that match and the copy comes back. If it works through the thinking mode ([Google's formatting notes](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4); HF PR #147), the copy doesn't come back.
+- **Measures:** as G1's.
+  - p(c), the next call being c once more, at the run's sampling (rebuilt from the top 20 logprobs) and exact. It adds both ways the next call can start, except after `block` and `think_all`, which already end with the thought. orig's path through the thought and `block` share one request.
+  - 3 samples per arm, the state's seed in every arm: exact copy, the same search, stale, malformed, escape.
+  - An escape changes approach when it's a new search or another tool, not a variant of c's search (the same pattern, or one inside the other: a heuristic).
+  - Paired contrasts with 95% intervals from resampling tasks: the two main effects and their interaction; the simple effects; and the anchors placebo − orig, dedup − orig, both − dedup, block − orig, think_all − block and think_all − orig.
+  - By group: 2 copies in the context against 3 or more, copies against returns, exit 1 against exit 0, and the controls. These use the exact probability, because the run's sampling pushes p(c) towards 0 or 1, which bends additive contrasts.
+- **Checks in prep, on the model's own template** (a probe of c, c, another empty search, c). A failed check stops the chain.
+  - In each cell, the token-level edit is the template's rendering of the edited JSON.
+  - Each edited result keeps its JSON and ends with the note, then the ID.
+  - The cells add the same tokens to every result, and the two notes are as long.
+  - `placebo` and `break` end with the same last result.
+  - The template's history has no empty thought before past calls, so `think_all` doesn't double one; `think_all` puts one before each call.
+  - `dedup` drops c's earlier copies and keeps the other search.
+  - What counts as a faithful miss, on 10 cases.
+- **Run it:** `GO=1 bash loops/submit_feedback.sh` from `~/Gemma4_paper_track`, after `git pull`. Without `GO=1` it prints the jobs and what blocks them.
+  - The chain: prep (CPU), then three chained A100 jobs (2-h limit each; each finishes what the one before left), then the report.
+  - Expect about 2.5 h of one A100: ~1,600 scored requests of ~9k tokens (about 2 h at G1's measured 2,070 prompt tok/s), and 3 samples for each of ~1,000 contexts. That's below the plan's 4–6 h.
+  - Outputs: `$R/paper/loops/fb_baseline_nothink_args_v30_zip/`, with `prep.md`, `score.jsonl`, `samples.jsonl` and `feedback.md`.
+- **What prep picks on the real runs** (run locally on copies, 2026-10-14):
+  - 101 repeat states in 23 tasks (33 task runs), and 32 controls. That's 133 states, inside the plan's ~120–160; 2 per kind per task run caps it below the target of 128.
+  - c has 2 copies in the context in 45 states, 3–4 in 9, and 5 or more in 47. 56 are copies (c was also the call before) and 45 are returns. 74 are `err_silent` and 27 `ok_empty`.
+  - 70 states have another search's identical result in R. The cells add 348 tokens on average.
+  - Left out: 6 states whose earlier copies of c a compaction hid, and 1 whose c is `-v` or `-q`.
+  - The student's own next call: `copy_3rd_plus` 52, `stale_other` 26, `copy_2nd` 12, `after_miss` 11.
 - **Reading it:**
-  - IDs help: the identical surface form contributes.
-  - Meaning helps beyond neutral text: interpretable feedback contributes.
+  - IDs help (a negative surface effect): the identical surface form contributes.
+  - Meaning helps beyond the placebo: interpretable feedback contributes.
   - Both help: report the interaction.
   - Nothing reliable: narrow the claim rather than sweep wordings.
+  - placebo − orig shows what the added tokens do by themselves; both − dedup, how close the best rendering gets to deleting the copies.
 
 ### G3. Temperature and replication
 
@@ -281,6 +314,9 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | [dose.py](dose.py) | Round 2's G1, the dose test: `prep`, `score`, `sample`, `report`. Imports [../gate1/gate1.py](../gate1/gate1.py) |
 | [dose.slurm](dose.slurm) | The dose test's steps in one job: CPU for prep and report, one A100 for score and sample |
 | [submit_dose.sh](submit_dose.sh) | Queues prep → 2 GPU jobs → report; dry unless `GO=1` |
+| [feedback.py](feedback.py) | Round 2's G2, the feedback factorial: `prep`, `score`, `sample`, `report`. Imports [dose.py](dose.py) and [../gate1/gate1.py](../gate1/gate1.py) |
+| [feedback.slurm](feedback.slurm) | The factorial's steps in one job: CPU for prep and report, one A100 for score and sample |
+| [submit_feedback.sh](submit_feedback.sh) | Queues prep → 3 GPU jobs → report; dry unless `GO=1` |
 | [lit_review_prompt.md](lit_review_prompt.md) | The start prompt of the literature-review session |
 
 The forced thought lives in [../gate1/](../gate1/README.md): `gate1.py --context T-open`, the step `open` of `gate1.slurm` and `submit_gate1.sh`.
@@ -360,3 +396,45 @@ No GPU, and nothing queued on Explorer. The test data sits in a session scratchp
   - the `ctrl` run's shards, whose layout loop_report.py already reads;
   - anything with Explorer's paths.
 - All four were then covered by the Explorer run of 2026-10-14 (§3, G1's result), with vLLM 0.19.1 and transformers 5.13.1.
+
+## Tested: the feedback factorial (locally, 2026-10-14)
+
+No GPU, and nothing queued on Explorer. The test data sits in a session scratchpad, outside this repo:
+- the model's tokenizer and chat template (with the `tokenizer_config.json` that transformers 4.57 can read);
+- 2 shards of Gate 1's run (14 tasks), and local copies of all three runs' records for one full prep.
+
+The checks:
+- **prep on the three runs:** all 17 template checks pass. It picks the 133 states described in §3, in 32 s.
+- **64 checks against a fake vLLM.** The fake copies the last call as the dose test's fake does. It copies less when an earlier copy got a different result (the varying IDs, × 0.5), when the last result holds the semantic note (× 0.4), and when the context ends with a thought the earlier copy didn't have (× 0.5).
+  - **Units:**
+    - `faithful_miss` on 16 cases, `pattern_of` on 7, and `related`;
+    - IDs: 8 digits and 8 tokens in place, all different, the same from the same key;
+    - a response that isn't a JSON object is left alone.
+  - **prep on the 2 shards:** 6 repeat states (both kinds, both results) and 7 controls, at most 2 of a kind per task run. The rerun rule works as in G1.
+  - **Every arm's tokens, state by state:**
+    - `orig` is the prompt, and `block` adds the thought.
+    - `think_all` is the prompt with a thought before every call and at the end.
+    - `dedup` drops c's k − 1 earlier copies.
+    - The cells keep every call and edit exactly R: the original JSON, then the note and the cell's ID. Other results stay as recorded, and all four cells add the same tokens.
+    - `placebo` and `break` end alike, and the semantic note appears only in `semantic` and `both`.
+  - **score:**
+    - one request per state, arm and path, with orig's thought path shared with `block` (rows = requests + states);
+    - each request is the arm's context, the path, then c;
+    - prefix caching off, prompt logprobs 20;
+    - a rerun does nothing.
+  - **sample:**
+    - one request per state and arm, n = 3 at T = 0.2, top-p 0.95, top-k 64;
+    - the state's seed in every arm;
+    - a rerun does nothing.
+  - **The judge, on 8 hand-made continuations:** a copy, a copy after the thought, a re-spelling, a broadened pattern, a new search, another tool, a malformed call and no call.
+  - **The report recovers the fake's effects:**
+    - negative surface and meaning effects;
+    - `placebo` equal to `orig`;
+    - `dedup` and `block` below `orig`, and `think_all` above `block`;
+    - the same report twice. An unknown arm is refused.
+- **`submit_feedback.sh`:** 22 cases against stub `sbatch` and `squeue` and a fake scratch tree.
+  - The 5-job chain and its dependencies, with the three default runs and `NAME`.
+  - `JOBS`, `ARMS`, `PREP_ARGS`, `AFTER`, and runs given as arguments.
+  - Every refusal. A dose job of ours doesn't block it.
+- `bash -n` passes on `feedback.slurm` and `submit_feedback.sh`.
+- **Not run:** a real vLLM; the GPU steps' speed on these states (estimated from G1's); anything with Explorer's paths.
