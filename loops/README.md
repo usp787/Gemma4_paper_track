@@ -80,10 +80,11 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 - `PASS=2` runs a second seed of both arms (`_r2`), and its report reads both passes.
 - `STEPS=report` writes the report again.
 - The header of [submit_loops.sh](submit_loops.sh) has the rest.
+- Since 2026-10-15 the script also queues G3's T = 1 arm and its zip checks by default (§3). `STEPS="template ctrl block report"` queues round 1's two arms alone.
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14 and G2 on 2026-10-15. Each section ends with its result; the full records are [ablation_G1.md](ablation_G1.md) and [ablation_G2.md](ablation_G2.md). Nothing else here is built or queued yet.
+G1 ran on 2026-10-14 and G2 on 2026-10-15. Each section ends with its result; the full records are [ablation_G1.md](ablation_G1.md) and [ablation_G2.md](ablation_G2.md). G3 is drafted and tested locally (2026-10-15), not yet run. Nothing else here is built or queued yet.
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -233,22 +234,64 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 - **The anchors:** dedup − orig is −0.407 and block − orig −0.317, both exact. think_all brings p(c) back to orig's level (+0.002), so the block works by breaking the match.
 - **Where it happens:** nearly all of it is at the 56 copy states, where c was also the call before. The 45 returns cycle over several stale calls, and p(c) there barely moves.
 
-### G3. Temperature and replication
+### G3. Temperature and replication (drafted 2026-10-15)
 
-- **Arms:** `ctrl` (T = 0.2), `block` (T = 0.2) and `ctrl_t1` (T = 1.0; Google's top-p 0.95 and top-k 64). Each gets two passes on the same 109 tasks.
-- **Environment:**
-  - The serving env was rebuilt for v31 on 2026-10-13 (`venvs/vllm_host`), so round 1's v30 runs can't be repeated exactly.
-  - Run all six on v31, and keep round 1 as a separate replicate.
-  - Record, for every run: wheelhouse, serving env, template sha, zip sha, sampling, and budgets.
-- **What it needs:**
-  - a zip that differs from `off_args`'s only in `configs/sampling.yaml` (temperature 1.0);
-  - a third arm in [arms.tsv](arms.tsv) and [submit_loops.sh](submit_loops.sh). The script now refuses arms with different zips.
-- **Measures:**
-  - fragmentation and re-entry of runs;
-  - stale rates, per task and pooled;
-  - malformed calls, source edits, resolved tasks, time and tokens;
-  - loops by type (search, malformed, termination), and what escapes lead to.
-- **Reading it:** the sample targets large behavioural effects. It can't establish a change of 1–2 resolved tasks, and an inconclusive comparison is not equivalence.
+[submit_loops.sh](submit_loops.sh), with [make_t1_zip.py](make_t1_zip.py), [loops.slurm](loops.slurm), [arms.tsv](arms.tsv) and [loop_report.py](loop_report.py). Tested locally (the last section), not yet run.
+
+| Arm | Zip | Chat template | Sampling | Tests |
+|---|---|---|---|---|
+| `ctrl` | `off_args`'s pinned zip (`532374430fe2`) | the model's | T = 0.2, top-p 0.95 (top-k 64 from the model) | the control, and round 1's replicate |
+| `block` | the same | always-block (`5f875818d2a2`) | as `ctrl` | round 1's block effect, again |
+| `ctrl_t1` | the pinned zip with temperature 1.0 | the model's | T = 1.0, top-p 0.95, top-k 64: Google's | does lock-in survive T = 1? |
+
+- **Two passes of each arm,** on the same 109 tasks (70 dev-sound and 39 rich-sound), PINS=1, unpaced, 4 tasks at once on one A100, as in round 1.
+- **The T = 1 zip** ([make_t1_zip.py](make_t1_zip.py)):
+  - it changes the one temperature line of `configs/sampling.yaml`. Every other entry keeps its bytes, name, order and timestamp;
+  - the analyzer sub-agent includes the same file, so it runs at T = 1 too;
+  - it is built once, then only checked. Its sha256 lands in every run's `run_meta.json`, so pass 2 must use the same bytes;
+  - the main track's `slurm/package_submission.slurm` then checks it with the host's compiler, as for any zip we'd submit.
+- **Why new runs on v31:**
+  - The serving env was rebuilt for v31 on 2026-10-13, so round 1's v30 runs can't be repeated exactly.
+  - For the 31B, v31 measurably changes nothing ([the main track's v31.md](../../Gemma4_kaggle_repo/post_train/RFT/v31.md)). The agent phase is byte-identical, and none of grading at 300 s, compaction interval 15 or the dropped `enable_thinking` server default changed a run of ours.
+  - Round 1's runs stay in the report as a separate replicate (`ctrl_v30`, `block_v30`).
+- **The chain, one pass at a time:**
+  1. three checks: the template, the T = 1 zip, and the host compiler on that zip. A failed check cancels the pass;
+  2. the three arms side by side, each two chained A100 jobs (2-h limit; the second finishes what the first left);
+  3. the report.
+- **Why one pass at a time:** the gpu partition lets a user have 8 jobs queued and 4 running (QoS `gpu`, 2026-10-15), and one pass is 6 GPU jobs.
+- **Run it,** from `~/Gemma4_paper_track` after `git pull` there and in `~/Gemma4_kaggle_repo`:
+  - `GO=1 bash loops/submit_loops.sh` queues pass 1;
+  - once its GPU jobs have left the queue, `GO=1 PASS=2 bash loops/submit_loops.sh` queues pass 2. Its report reads both passes;
+  - without `GO=1`, the script prints the jobs and what blocks them. `WIDTH=1` (or `SERIAL=1`) runs one arm at a time; the script's header has the rest.
+- **Compute:** round 1 took 1 h 19 (`ctrl`) and 1 h 28 (`block`) for the 109 tasks. That's about 1.5 A100-hours per arm and pass, 4.5 per pass and 9 in all, inside the plan's 9–15. T = 1's time per task is unknown; each chain's second job covers 2 h more.
+- **What the report writes,** in `$R/paper/loops/report_p<pass>_<time>/`:
+  - `baseline_dev.md`, `baseline_rich.md`: resolved per run and pooled over the passes, each arm against `ctrl` task by task with a bootstrap CI and a sign test, call hygiene, agent time and output tokens;
+  - `loops.md`:
+    - every run's provenance: wheelhouse, harness, vLLM build, zip, template, sampling, PINS, pace, budget, GPU;
+    - each arm's passes pooled: stale repeats split into copies and returns (G2's split), malformed calls, lock-in at k = 2 and 3+, runs of 3+ and 5+ per task, their length, loop tasks;
+    - runs of 3+ by type: search, other command, read, edit, submit (termination), malformed;
+    - after a run of 3+ that ends before the task does: is the call re-sent later (re-entry), does the next call work, does a source edit follow;
+    - each pair's difference with a 95% interval from resampling tasks: `block` − `ctrl`, `ctrl_t1` − `ctrl`, round 1's `block` − `ctrl`, and `ctrl` and `block` against their round-1 runs;
+    - each arm's pass 2 − pass 1, the noise floor.
+- **Round 1 in these terms** (the new metrics on round 1's runs, `block` against `ctrl`). A replication should show the same directions:
+  - lock-in at 3+ 95.7% → 89.0%;
+  - runs of 3+ per task 0.50 → 0.80, and 23 → 11 calls long;
+  - copies 31% → 26% of calls, returns 9% → 9%;
+  - re-entry 18% → 45%;
+  - the next call works 74% → 52%;
+  - resolved 37 → 37.
+- **Predictions, written before the run:**
+  - **`ctrl_t1` locks in less, but still locks in.**
+    - In the replay, the recorded 3rd-or-later copy keeps 0.73 at T = 1 with top-p 0.95 (loops_reason_10_13.md §3), and G2's copy states 0.79 in exact probability.
+    - So expect lock-in at 3+ around 0.70–0.85, against 95.7%. Lock-in at k = 2 should fall below 77.5%.
+    - Expect fewer and shorter runs of 5+, and a lower copy share.
+  - **Malformed calls may rise at T = 1,** since argument tokens get sampled more widely.
+  - **No prediction for resolution:** two passes can't detect a change of 1–2 tasks.
+- **Reading it:**
+  - Lock-in at 3+ in `ctrl_t1` far above its k = 1 rate means lock-in survives T = 1. Then the self-copying isn't a low-temperature artifact, as G1's and G2's exact probabilities predict.
+  - Lock-in near the k = 1 rate means the closed loop's lock-in comes mostly from the sampler.
+  - An arm difference no larger than the pass-to-pass row is no finding. Trace metrics come first; resolved tasks second, since one run varies by ±2.2.
+  - The sample targets large behavioural effects. It can't establish a change of 1–2 resolved tasks, and an inconclusive comparison is not equivalence.
 
 ### G4. Conditional: feedback over whole tasks
 
@@ -314,10 +357,11 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | File | What it does |
 |---|---|
 | [make_template.py](make_template.py) | The always-block template from the model's own, and its 36 checks |
-| [loop_report.py](loop_report.py) | Loop metrics of any runs: by task group, with the template's effect on the prompts. stdlib only |
-| [arms.tsv](arms.tsv) | The two arms, in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
-| [loops.slurm](loops.slurm) | The CPU steps: `STEP=template` or `STEP=report` |
-| [submit_loops.sh](submit_loops.sh) | Queues the chain; dry unless `GO=1` |
+| [loop_report.py](loop_report.py) | Loop metrics of any runs: by task group, with the template's effect on the prompts. With `--arm` and `--pair` (G3): passes pooled per arm, copies and returns, loop types, what follows a run, paired intervals over tasks, pass to pass, provenance. stdlib only |
+| [make_t1_zip.py](make_t1_zip.py) | G3's T = 1 zip: the pinned zip with only its temperature line changed, and the checks that say so. stdlib only |
+| [arms.tsv](arms.tsv) | The three closed-loop arms (`ctrl`, `block`, `ctrl_t1`), in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
+| [loops.slurm](loops.slurm) | The CPU steps: `STEP=template`, `STEP=t1zip` or `STEP=report` |
+| [submit_loops.sh](submit_loops.sh) | Queues a pass of the closed-loop arms: checks → arms → report; dry unless `GO=1` |
 | [dose.py](dose.py) | Round 2's G1, the dose test: `prep`, `score`, `sample`, `report`. Imports [../gate1/gate1.py](../gate1/gate1.py) |
 | [dose.slurm](dose.slurm) | The dose test's steps in one job: CPU for prep and report, one A100 for score and sample |
 | [submit_dose.sh](submit_dose.sh) | Queues prep → 2 GPU jobs → report; dry unless `GO=1` |
@@ -447,3 +491,37 @@ The checks:
   - Every refusal. A dose job of ours doesn't block it.
 - `bash -n` passes on `feedback.slurm` and `submit_feedback.sh`.
 - **Not run:** a real vLLM; the GPU steps' speed on these states (estimated from G1's); anything with Explorer's paths.
+
+## Tested: G3's closed-loop runs (locally, 2026-10-15)
+
+No GPU, and nothing queued on Explorer. The test data sits in a session scratchpad, outside this repo: round 1's `ctrl` and `block` runs (traces, `task_results.jsonl` and `run_meta.json`; `calls.jsonl` of one shard), Gate 1's run and its replicate.
+- **[make_t1_zip.py](make_t1_zip.py),** 23 checks on a zip rebuilt from the main track's `agents/baseline_nothink_args` at `ebc522f`, whose six entries have the pinned zip's sizes:
+  - the T = 1 zip keeps every other entry's bytes, every name, the order and the timestamps; `sampling.yaml` gains `temperature: 1.0` and changes nothing else;
+  - a second build gives the same bytes. A rerun only checks, and leaves the file alone;
+  - an existing zip that differs in another file, in `top_p` too, or at another temperature is refused and left as it was;
+  - a source with no temperature line, two of them, or already at T = 1 is refused, and nothing is written. A comment on the line is kept.
+- **[loop_report.py](loop_report.py):**
+  - with `--runs` only, its output on round 1's two runs is byte for byte what it was before this change. Apart from the template table, which needs every `calls.jsonl`, it is round 1's `loops.md`;
+  - 21 unit checks on hand-made call sequences:
+    - copies, returns, lock-in counts, runs and their types;
+    - re-entry, which a successful edit in between clears; the next call working; a source edit after, where a test edit doesn't count;
+    - the paired interval: identical arms give 0; a constant shift gives the shift; only common tasks count, and an arm's passes pool within a task;
+  - with arms on round 1's runs, it reproduces round 1's pooled lock-in: `ctrl` 77.5% and 95.7%, `block` 89.0% at 3+;
+  - an arm whose runs don't exist yet, and a missing pass, are reported, not fatal. The full report takes 4 s.
+- **[../baseline/baseline_report.py](../baseline/baseline_report.py)** reads the new [arms.tsv](arms.tsv). `ctrl_t1` shows "no runs yet", and `block` against `ctrl` on round 1's runs is as before: −1.0 (−6.0 to +3.0) on dev.
+- **[submit_loops.sh](submit_loops.sh): 52 cases** against stub `sbatch`, `squeue`, `scontrol` and `sacctmgr` and a fake scratch tree:
+  - the 10-job pass. Every arm's first job waits for all three checks (`afterok`), its second for its first, and the report for all six GPU jobs and the checks;
+  - the zip check runs from the main checkout, after `t1zip`, and keeps its `singleton`;
+  - the run names on v31, `PASS=2`'s `_r2` runs, and the report's arms and pairs, round 1's included;
+  - `WIDTH` and `SERIAL=1`, `ZIPCHECK=0`, `AFTER`, `OLD`, `STEPS=report` and `ctrl_t1` alone;
+  - every refusal: the QoS limit (3 queued + 6 > 8; 2 + 6 passes), Kaggle's wheelhouse, loops jobs queued (`FORCE=1` overrides), a missing template, zip, package job or wheelhouse version, an unknown step, and an `arms.tsv` with other zips.
+- `bash -n` passes on [submit_loops.sh](submit_loops.sh) and [loops.slurm](loops.slurm).
+- **Checked on Explorer** (light commands, 2026-10-15):
+  - the pinned zip's sha256 (`532374430fe2…`) and its six entries;
+  - the gpu QoS (8 queued, 4 running);
+  - the validator venv, which already has `adk_submission` 0.2.13, the newest wheel, so the zip check needs no pip.
+- **Not run:**
+  - the eval jobs;
+  - `package_submission.slurm` on the T = 1 zip;
+  - `make_t1_zip.py` on the real pinned zip; its rebuilt twin has the same entries and sizes;
+  - anything with Explorer's paths.
