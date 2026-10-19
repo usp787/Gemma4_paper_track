@@ -84,7 +84,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14 and G2 on 2026-10-15. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md) and [ablation_G2.md](../ablation/ablation_G2.md). G3 is drafted and tested locally (2026-10-15), not yet run. Nothing else here is built or queued yet.
+G1 ran on 2026-10-14, G2 on 2026-10-15 and G3 on 2026-10-15/16. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md) and [ablation_G3.md](../ablation/ablation_G3.md). Nothing else here is built or queued yet.
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -234,9 +234,9 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 - **The anchors:** dedup − orig is −0.407 and block − orig −0.317, both exact. think_all brings p(c) back to orig's level (+0.002), so the block works by breaking the match.
 - **Where it happens:** nearly all of it is at the 56 copy states, where c was also the call before. The 45 returns cycle over several stale calls, and p(c) there barely moves.
 
-### G3. Temperature and replication (drafted 2026-10-15)
+### G3. Temperature and replication (drafted 2026-10-15, run 2026-10-15/16)
 
-[submit_loops.sh](submit_loops.sh), with [make_t1_zip.py](make_t1_zip.py), [loops.slurm](loops.slurm), [arms.tsv](arms.tsv) and [loop_report.py](loop_report.py). Tested locally (the last section), not yet run.
+[submit_loops.sh](submit_loops.sh), with [make_t1_zip.py](make_t1_zip.py), [loops.slurm](loops.slurm), [arms.tsv](arms.tsv) and [loop_report.py](loop_report.py). Tested locally (the last section). Ran on Explorer on 2026-10-15/16; the result is at the end of this section.
 
 | Arm | Zip | Chat template | Sampling | Tests |
 |---|---|---|---|---|
@@ -292,6 +292,16 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
   - Lock-in near the k = 1 rate means the closed loop's lock-in comes mostly from the sampler.
   - An arm difference no larger than the pass-to-pass row is no finding. Trace metrics come first; resolved tasks second, since one run varies by ±2.2.
   - The sample targets large behavioural effects. It can't establish a change of 1–2 resolved tasks, and an inconclusive comparison is not equivalence.
+
+**Result (2026-10-16):** lock-in survives T = 1; T = 1 cuts the onset, but resolution doesn't move. The full record is [ablation_G3.md](../ablation/ablation_G3.md).
+- **The runs:** pass 1 (all three arms, at `03b7890`) and pass 2 (`ctrl` and `ctrl_t1` only, the user's choice). 109 of 109 tasks in every run, with the same harness and vLLM build. Reports `report_p1_1015-1425/` and `report_p2_1016-1640/`.
+- **T = 1 against T = 0.2, both passes:**
+  - the stale share is 20.4% against 38.6% (−18.2 points), and loop tasks 9.2% against 24.8%;
+  - lock-in at 3+ is 89.9% against 94.8% (−4.9, −8.7 to −1.9), and well-formed 0.87 against 0.95;
+  - resolved 71 against 72 of 218 (−0.5 points, −5.0 to +4.1);
+  - the 0.70–0.85 prediction holds at the onset (k = 3–4: 0.67, and 0.77 on clean steps), not in the pooled 3+.
+- **At T = 0.2, long runs end only from outside:** on clean steps, every step after 5+ identical calls continues the run (1,342 of 1,342). The 58 well-formed runs of 10+ ended after the budget warning (43), at a compaction (14) or at the task's end (1).
+- **The block** replicates round 1's shape: lock-in at 3+ −5.6, runs of 3+ +0.35 per task, run length −9, re-entry +26. It doesn't replicate the stale drop (+1.6, −4.5 to +7.6), so line 10's "stale share falls 5–6 points" holds for v30 only.
 
 ### G4. Conditional: feedback over whole tasks
 
@@ -370,6 +380,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | [submit_feedback.sh](submit_feedback.sh) | Queues prep → 3 GPU jobs → report; dry unless `GO=1` |
 | [ablation_G1.md](../ablation/ablation_G1.md) | G1's record: design, run and result, copied from §3 here and from [loops_reason_10_13.md](loops_reason_10_13.md) |
 | [ablation_G2.md](../ablation/ablation_G2.md) | G2's record: the run, the result, and the split into copies and returns |
+| [ablation_G3.md](../ablation/ablation_G3.md) | G3's record: both passes, the paired differences, the hazard by run length, how runs end, un-looping, and the predictions against the result |
 | [lit_review_prompt.md](lit_review_prompt.md) | The start prompt of the literature-review session |
 
 The forced thought lives in [../gate1/](../gate1/README.md): `gate1.py --context T-open`, the step `open` of `gate1.slurm` and `submit_gate1.sh`.
