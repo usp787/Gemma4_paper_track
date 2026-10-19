@@ -1,0 +1,1276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Loop Ablations Recap</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Every loop ablation on Gemma 4 31B's thinking-off coding agent so far (round 1, G1, G2, G3 passes 1 and 2): what each lever does, a real example of it escaping or failing, and what to try next.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Layout: one 680px serif reading column on warm paper, as loops/loop_illustration.html; figures and examples widen to 920px on a darker panel.
+   Chart colors are validated (OKLab dE, Machado CVD) against the panel in both themes: outcome hues all-pairs, arm hues all-pairs. */
+:root {
+  --bg: #FAF9F5;  --panel: #F0EEE6;  --ink: #141413;  --ink-2: #5E5D59;  --muted: #6A6862;
+  --line: #E3E0D6; --grid: #D9D5C9;  --hl: #E4DFD1;   --link: #A3482A; --shadow: rgba(20, 20, 19, 0.14);
+  /* what the model did: a copy, another stale call, an escape (or a new call), a malformed call */
+  --c-copy: #C4532A; --c-stale: #C29424; --c-esc: #2F72C4; --c-mal: #141413;
+  --on-copy: #FFFFFF; --on-stale: #141413; --on-esc: #FFFFFF;
+  /* closed-loop arms: the control at T = 0.2, the control at T = 1, the always-block template */
+  --a-ctrl: #3B3934; --a-t1: #6A55CF; --a-block: #14906A;
+  /* how long runs end */
+  --x-warn: #3B3934; --x-comp: #8F8B80; --x-end: #CFCABD;
+  --font-body: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1C1B1A; --panel: #262624; --ink: #ECEAE2; --ink-2: #B9B6AD; --muted: #97948B;
+    --line: #3A3935; --grid: #46443F; --hl: #3A3833; --link: #EE9472; --shadow: rgba(0, 0, 0, 0.45);
+    --c-copy: #C44229; --c-stale: #AB922D; --c-esc: #4A8FE0; --c-mal: #ECEAE2;
+    --on-copy: #FFFFFF; --on-stale: #141413; --on-esc: #141413;
+    --a-ctrl: #D9D5CB; --a-t1: #9085E9; --a-block: #1FA67A;
+    --x-warn: #D9D5CB; --x-comp: #8A877F; --x-end: #4A4843;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1C1B1A; --panel: #262624; --ink: #ECEAE2; --ink-2: #B9B6AD; --muted: #97948B;
+  --line: #3A3935; --grid: #46443F; --hl: #3A3833; --link: #EE9472; --shadow: rgba(0, 0, 0, 0.45);
+  --c-copy: #C44229; --c-stale: #AB922D; --c-esc: #4A8FE0; --c-mal: #ECEAE2;
+  --on-copy: #FFFFFF; --on-stale: #141413; --on-esc: #141413;
+  --a-ctrl: #D9D5CB; --a-t1: #9085E9; --a-block: #1FA67A;
+  --x-warn: #D9D5CB; --x-comp: #8A877F; --x-end: #4A4843;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 19px; line-height: 1.62; font-optical-sizing: auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 72px;
+}
+@media (max-width: 600px) { body { font-size: 17.5px; } }
+img, svg { max-width: 100%; }
+[hidden] { display: none !important; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--c-esc); outline-offset: 3px; border-radius: 3px; }
+code { font-family: var(--font-mono); font-size: 0.8em; background: var(--panel); padding: 0.1em 0.32em; border-radius: 4px; overflow-wrap: anywhere; }
+code, pre { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.page { max-width: 920px; margin: 0 auto; }
+.col { max-width: 680px; margin-inline: auto; }
+
+/* masthead */
+.masthead { padding-block: 64px 8px; }
+.eyebrow { font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 0; }
+.theme-btn { margin-left: auto; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 1px 11px; cursor: pointer; }
+.theme-btn:hover { color: var(--ink); border-color: var(--muted); }
+h1 { font-family: var(--font-ui); font-weight: 500; font-size: clamp(38px, 6.4vw, 60px); line-height: 1.04; letter-spacing: -0.022em; margin: 18px 0 22px; text-wrap: balance; }
+.dek { font-size: 22px; line-height: 1.45; color: var(--ink-2); margin: 0 0 28px; text-wrap: pretty; }
+@media (max-width: 600px) { .dek { font-size: 19px; } }
+.brief { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-block: 18px 6px; margin: 0 0 8px; }
+.brief h2 { font-family: var(--font-ui); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.brief ul { margin: 0; padding-left: 1.1em; font-size: 17.5px; line-height: 1.55; }
+.brief li { margin-bottom: 0.6em; }
+
+/* body type */
+article h2 { font-family: var(--font-ui); font-weight: 500; font-size: 30px; line-height: 1.15; letter-spacing: -0.012em; margin: 72px 0 16px; text-wrap: balance; }
+article h3 { font-family: var(--font-ui); font-weight: 600; font-size: 19px; line-height: 1.3; margin: 40px 0 8px; text-wrap: balance; }
+article p { margin: 0 0 1em; text-wrap: pretty; }
+article ul, article ol { padding-left: 1.2em; margin: 0 0 1.1em; }
+article li { margin-bottom: 0.45em; }
+.kicker { font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 72px 0 0; }
+.kicker + h2 { margin-top: 6px; }
+.small { font-size: 16px; line-height: 1.55; color: var(--ink-2); }
+.readings { list-style: none; padding: 0; counter-reset: rd; margin: 18px 0 24px; display: grid; gap: 12px; }
+.readings > li { counter-increment: rd; display: grid; grid-template-columns: 1.8em minmax(0, 1fr); gap: 4px; margin: 0; }
+.readings > li::before { content: counter(rd); font-family: var(--font-ui); font-weight: 500; font-size: 15px; color: var(--muted); padding-top: 0.2em; }
+.readings b { font-family: var(--font-ui); font-weight: 600; }
+
+/* glossary */
+.gloss { display: grid; grid-template-columns: minmax(0, 8.5em) minmax(0, 1fr); gap: 8px 22px; margin: 8px 0 18px; font-size: 17px; line-height: 1.5; }
+.gloss dt { font-family: var(--font-ui); font-weight: 600; font-size: 15px; padding-top: 0.15em; }
+.gloss dd { margin: 0; }
+@media (max-width: 600px) { .gloss { grid-template-columns: minmax(0, 1fr); gap: 2px; } .gloss dd { margin-bottom: 10px; } }
+
+/* figures */
+figure { margin: 44px auto; max-width: 920px; }
+.panel { background: var(--panel); border-radius: 8px; padding: 22px 24px 18px; }
+@media (max-width: 600px) { .panel { padding: 16px 12px 12px; border-radius: 6px; } }
+.fig-title { font-family: var(--font-ui); font-weight: 600; font-size: 16px; margin: 0 0 4px; }
+.fig-sub { font-family: var(--font-ui); font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
+figcaption { font-family: var(--font-ui); font-size: 14px; line-height: 1.55; color: var(--muted); max-width: 680px; margin: 12px 0 0; }
+figcaption b { color: var(--ink-2); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-family: var(--font-ui); font-size: 13.5px; color: var(--ink-2); margin: 0 0 12px; padding: 0; list-style: none; }
+.legend li { display: flex; align-items: center; gap: 7px; margin: 0; }
+.sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; flex: none; }
+.sw.line { height: 3px; width: 16px; border-radius: 2px; }
+.sw.k-copy { background: var(--c-copy); } .sw.k-stale { background: var(--c-stale); } .sw.k-esc { background: var(--c-esc); } .sw.k-mal { background: var(--c-mal); }
+.sw.k-ctrl { background: var(--a-ctrl); } .sw.k-t1 { background: var(--a-t1); } .sw.k-block { background: var(--a-block); }
+.sw.k-warn { background: var(--x-warn); } .sw.k-comp { background: var(--x-comp); } .sw.k-end { background: var(--x-end); }
+.sw.k-edit { width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+.chart { position: relative; width: 100%; min-width: 0; outline-offset: 4px; }
+.chart svg { display: block; overflow: visible; }
+.mult { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 22px; }
+.mult h4 { font-family: var(--font-ui); font-size: 13.5px; font-weight: 600; margin: 0 0 2px; }
+.mult .msub { font-family: var(--font-ui); font-size: 12.5px; color: var(--muted); margin: 0 0 4px; }
+@media (max-width: 600px) { .mult { grid-template-columns: minmax(0, 1fr); } }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; margin: 0 0 14px; font-family: var(--font-ui); font-size: 13.5px; }
+.seg button { font: inherit; color: var(--ink-2); background: transparent; border: 0; border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+/* SVG marks: colors come from the tokens, so a theme switch needs no redraw */
+.f-copy { fill: var(--c-copy); } .f-stale { fill: var(--c-stale); } .f-esc { fill: var(--c-esc); } .f-mal { fill: var(--c-mal); }
+.f-ctrl { fill: var(--a-ctrl); } .f-t1 { fill: var(--a-t1); } .f-block { fill: var(--a-block); }
+.l-ctrl { stroke: var(--a-ctrl); } .l-t1 { stroke: var(--a-t1); } .l-block { stroke: var(--a-block); }
+.ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.mk { stroke: var(--panel); stroke-width: 2; }
+.in-copy { fill: var(--on-copy); } .in-stale { fill: var(--on-stale); } .in-esc { fill: var(--on-esc); }
+.in-copy, .in-stale, .in-esc { font-family: var(--font-ui); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; pointer-events: none; }
+.tick { fill: var(--muted); font-family: var(--font-ui); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.grid { stroke: var(--grid); stroke-width: 1; }
+.base { stroke: var(--muted); stroke-width: 1; }
+.zero { stroke: var(--ink-2); stroke-width: 1; }
+.xhair { stroke: var(--ink-2); stroke-width: 1; pointer-events: none; }
+.whisk { stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; }
+.dot { fill: var(--ink); stroke: var(--panel); stroke-width: 2; }
+.val { fill: var(--ink); font-family: var(--font-ui); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.val.sm { font-size: 11.5px; }
+.glab { fill: var(--ink); font-family: var(--font-ui); font-size: 14px; }
+.ghead { fill: var(--muted); font-family: var(--font-ui); font-size: 12px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.gsub { fill: var(--muted); font-family: var(--font-ui); font-size: 12.5px; }
+.rtxt { fill: var(--ink-2); font-family: var(--font-ui); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ann { stroke: var(--ink-2); stroke-width: 1; }
+.ann-t { fill: var(--ink-2); font-family: var(--font-ui); font-size: 12px; }
+.dot-edit { fill: var(--ink); }
+.q-n { fill: var(--c-esc); } .q-r { fill: var(--c-stale); } .q-c { fill: var(--c-copy); } .q-m { fill: var(--c-mal); }
+.qring { fill: none; stroke: var(--ink); stroke-width: 1.5; pointer-events: none; }
+.hit { fill: transparent; cursor: default; }
+.hit:focus { outline: none; }
+.hit:focus-visible { stroke: var(--ink); stroke-width: 1.5; }
+
+/* tooltip */
+.tip { position: fixed; z-index: 20; left: 0; top: 0; pointer-events: none; background: var(--ink); color: var(--bg); font-family: var(--font-ui); font-size: 13px; line-height: 1.45; padding: 9px 11px; border-radius: 7px; max-width: min(400px, calc(100vw - 24px)); box-shadow: 0 6px 22px var(--shadow); }
+.tip .h { font-size: 12px; opacity: 0.75; }
+.tip .v { font-weight: 600; }
+.tip .m { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; margin-top: 2px; }
+
+/* tables */
+.table-wrap { overflow-x: auto; margin: 0; }
+table { border-collapse: collapse; width: 100%; font-family: var(--font-ui); font-size: 15px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+th { font-weight: 500; font-size: 13px; color: var(--muted); text-align: left; border-bottom: 1px solid var(--line); padding: 8px 10px; vertical-align: bottom; }
+td { border-bottom: 1px solid var(--line); padding: 9px 10px; vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+td .d { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.tbl-over td:first-child { white-space: nowrap; font-weight: 500; }
+.tbl-over td:nth-child(2) { min-width: 15em; }
+.tbl-over td:last-child { min-width: 13em; }
+.tbl-lever td:first-child { min-width: 11em; font-weight: 500; }
+.tbl-lever td { min-width: 9em; }
+details.alt { margin-top: 12px; font-family: var(--font-ui); font-size: 14px; color: var(--ink-2); }
+details.alt summary { cursor: pointer; color: var(--ink-2); width: fit-content; }
+details.alt summary:hover { color: var(--ink); }
+details.alt[open] summary { margin-bottom: 8px; }
+
+/* worked examples */
+.case-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin: 0 0 12px; }
+.case-kicker { font-family: var(--font-ui); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0 0 2px; width: 100%; }
+.case-kicker code { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.case-title { font-family: var(--font-ui); font-weight: 600; font-size: 17px; margin: 0; }
+.verdict { font-family: var(--font-ui); font-size: 13px; color: var(--ink); display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 11px 2px 9px; background: var(--bg); white-space: nowrap; }
+pre.ctx { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; margin: 0 0 14px; padding: 12px 14px; background: var(--bg); border-radius: 6px; overflow-x: auto; white-space: pre; color: var(--ink); }
+pre.ctx .ix { color: var(--muted); }
+pre.ctx .r { color: var(--muted); }
+pre.ctx .add { background: var(--hl); border-radius: 3px; padding: 1px 2px; }
+pre.ctx .lbl { font-family: var(--font-ui); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+table.arms { table-layout: fixed; }
+table.arms th:nth-child(1) { width: 27%; }
+table.arms th:nth-child(2) { width: 6.5em; }
+table.arms td { padding: 8px 10px; }
+table.arms td:first-child { font-weight: 500; }
+@media (max-width: 600px) {
+  table.arms thead { display: none; }
+  table.arms, table.arms tbody, table.arms tr, table.arms td { display: block; }
+  table.arms tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  table.arms tr:last-child { border-bottom: 0; }
+  table.arms td { border: 0; padding: 0; }
+  table.arms td.n { text-align: left; font-size: 13px; color: var(--muted); margin: 2px 0 6px; }
+  table.arms td.n::before { content: "p(c), exact: "; }
+}
+.samples { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.samples li { display: grid; grid-template-columns: 6.6em minmax(0, 1fr); gap: 8px; margin: 0; align-items: baseline; }
+.samples .what { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.samples code { font-size: 12.5px; background: transparent; padding: 0; }
+.samples .x { color: var(--muted); font-family: var(--font-ui); font-size: 12.5px; margin-left: 6px; white-space: nowrap; }
+@media (max-width: 600px) { .samples li { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
+/* thoughts, strips, callouts */
+.thought { margin: 0; padding-left: 18px; border-left: 2px solid var(--line); }
+.thought .who { font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+.thought blockquote { margin: 0 0 8px; font-style: italic; color: var(--ink); font-size: 17.5px; }
+.thought .then { font-family: var(--font-ui); font-size: 14px; color: var(--ink-2); margin: 0; }
+.strip-head { font-family: var(--font-ui); font-size: 14px; color: var(--ink); margin: 18px 0 2px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.strip-head:first-of-type { margin-top: 4px; }
+.strip-head span { color: var(--muted); }
+.callout { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 20px; align-items: center; margin: 0 0 6px; }
+.callout .big { font-family: var(--font-ui); font-weight: 500; font-size: 48px; line-height: 1; letter-spacing: -0.02em; }
+.callout .big small { font-size: 22px; color: var(--muted); font-weight: 400; }
+.callout p { font-family: var(--font-ui); font-size: 15px; line-height: 1.5; color: var(--ink-2); margin: 0; }
+@media (max-width: 600px) { .callout { grid-template-columns: minmax(0, 1fr); } }
+.waffle { display: flex; flex-wrap: wrap; gap: 3px; margin: 16px 0 12px; }
+.waffle i { width: 14px; height: 14px; border-radius: 2px; display: block; }
+.waffle i.w { background: var(--x-warn); } .waffle i.c { background: var(--x-comp); } .waffle i.e { background: var(--x-end); }
+.next { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 22px; counter-reset: nx; }
+.next > li { counter-increment: nx; display: grid; grid-template-columns: 2.2em minmax(0, 1fr); gap: 4px; margin: 0; }
+.next > li::before { content: counter(nx); grid-column: 1; grid-row: 1 / span 6; font-family: var(--font-ui); font-weight: 500; font-size: 22px; line-height: 1.2; color: var(--muted); }
+.next > li > * { grid-column: 2; min-width: 0; }
+.next h3 { margin: 0 0 4px; }
+.next p { margin: 0 0 0.5em; }
+.next .meta { font-family: var(--font-ui); font-size: 13.5px; color: var(--muted); }
+
+/* footer */
+.about { margin-top: 72px; border-top: 1px solid var(--line); padding-top: 28px; font-family: var(--font-ui); font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }
+.about h2 { font-family: var(--font-ui); font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 26px 0 10px; }
+.about ul, .about ol { padding-left: 1.2em; margin: 0; }
+.about li { margin-bottom: 6px; }
+.refs { font-size: 13.5px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead col">
+  <p class="eyebrow"><span>Loop study</span><span>Ablation recap</span><span>October 17, 2026</span><button type="button" class="theme-btn" id="theme-btn" aria-pressed="false">Dark mode</button></p>
+  <h1>What breaks a tool-call loop</h1>
+  <p class="dek">Gemma 4 31B, run as a coding agent with thinking off, often sends the same failed call dozens of times in a row. Since October 12 we have tested a dozen levers on these loops, one step ahead and over whole tasks. The loop is the agent copying its own earlier calls. What the tool results say barely matters. What the history looks like decides it. And ending a loop does not, by itself, solve the task.</p>
+  <section class="brief" aria-labelledby="brief-h">
+    <h2 id="brief-h">In brief</h2>
+    <ul>
+      <li><b>Copies cause copies, if they are identical.</b> At a fixed history, adding copies of a failed search raises the chance of one more from 0.2% to 10% (two copies) and 43% (four). Re-spelled copies of the same search stay near 3%.</li>
+      <li><b>The results don&rsquo;t matter; the history does.</b> Varying IDs on the repeated results, or a faithful &ldquo;found zero matches&rdquo; note, leave the copy where it was. Deleting the earlier copies cuts it from 0.79 to 0.07 and turns most copies into escapes.</li>
+      <li><b>The empty-thought block is a pattern break.</b> Put the same four tokens before every earlier call and the copy comes back in full.</li>
+      <li><b>Temperature 1 stops loops starting, not locking in.</b> Stale calls fall from 39% to 20% of all calls and loop tasks from 25% to 9%. Yet after three identical calls, a fourth still follows 87% of the time, and resolution is unchanged (32.6% against 33.0%).</li>
+      <li><b>Nothing inside a loop ends it.</b> At T = 0.2, none of 58 runs of ten or more copies stopped by itself: 43 ended at the harness&rsquo;s budget warning, 14 at a context compaction. Tasks that T = 1 un-looped were solved no more often (9 against 10).</li>
+    </ul>
+  </section>
+</header>
+
+<article>
+<div class="col">
+  <h2 id="setup">The agent and its loops</h2>
+  <p>The agent is Gemma 4 31B (int4, quantization-aware trained) inside the coding harness of the Gemma 4 agent competition on Kaggle. It works on real issues from four Python repositories, fastapi, requests, httpx and rich: 109 tasks, 70 from the development set and 39 from rich. Thinking is switched off, and it samples at temperature 0.2, top-p 0.95, top-k 64. At each step it reads the whole history (the task, every earlier call, every result) and writes one tool call. The harness runs it and appends the result. A task gets 60 calls and four minutes.</p>
+  <p>When a task fails, the trace often ends in a loop: one call, sent again and again, getting the same answer each time. Most loops are searches that find nothing. In the control arm, once the agent has sent the same call twice in a row, a third follows 77% of the time, and after three or more, another follows 96% of the time. <a href="../loops/loop_illustration.html">Inside a tool-call loop</a> walks through one such loop call by call. This post collects every ablation since: what each lever does, one real example of it escaping or failing, and what we would try next.</p>
+
+  <h3 id="terms">Terms</h3>
+  <dl class="gloss">
+    <dt>Copy</dt><dd>The same call as the one just before, with the same arguments.</dd>
+    <dt>Return</dt><dd>A call the agent already sent earlier, but not just before.</dd>
+    <dt>Stale call</dt><dd>A copy or a return with no file edit since the earlier one. &ldquo;Other stale&rdquo; means a stale call other than the one being measured.</dd>
+    <dt>Escape</dt><dd>A well-formed call that isn&rsquo;t stale. It is one step ahead, not yet progress.</dd>
+    <dt>p(c)</dt><dd>The probability the model gives to sending call <i>c</i> once more. &ldquo;Exact&rdquo; is the model&rsquo;s own probability. &ldquo;At T = 0.2&rdquo; applies the run&rsquo;s sampling, which pushes values towards 0 or 1.</dd>
+    <dt>Lock-in</dt><dd>In whole runs, the chance that the next call is one more copy, given how many identical calls came just before.</dd>
+  </dl>
+
+  <h2 id="methods">Two ways to test a lever</h2>
+  <p><b>One step ahead.</b> Take a recorded state, meaning the history just before a call. Edit the context in one way, then ask the same weights what comes next: score p(c), and draw three calls at the run&rsquo;s sampling. Everything else stays fixed, so any difference is the edit&rsquo;s doing. Round 1&rsquo;s forced thought, G1 and G2 work this way.</p>
+  <p><b>Over whole tasks.</b> Run all 109 tasks with the lever on, against a control arm in the same setting, and compare the traces and the resolved tasks. This catches what one step can&rsquo;t: loops that start somewhere else, budget spent, tasks solved. Round 1&rsquo;s always-block run and G3 work this way. One run&rsquo;s resolved count moves by about two tasks from noise alone, so trace measures come first.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 1. The ablations so far</p>
+    <div class="table-wrap">
+      <table class="tbl-over">
+        <thead><tr><th>Run</th><th>Question</th><th>Design and size</th><th class="n">A100-hours</th><th>Answer</th></tr></thead>
+        <tbody>
+          <tr><td>Round 1<span class="d">Oct 12</span></td><td>Does a real thought break the copy? Does an empty thought before every call cut loops?</td><td>Forced thought one step ahead (581 states, 70 tasks); always-block template over whole tasks (109 tasks, 2 arms)</td><td class="n">~3.5</td><td>A forced thought escapes 58% of the time where the model skipped thinking (11% on its own). The block reshapes loops; 37 tasks solved in both arms.</td></tr>
+          <tr><td>G1<span class="d">Oct 14</span></td><td>Do added copies raise the next copy at a fixed history?</td><td>1, 2 or 4 identical copies against re-spelled copies of the same search (60 histories, 56 tasks)</td><td class="n">1.1</td><td>Yes, if identical. The effect is far below the closed-loop curve.</td></tr>
+          <tr><td>G2<span class="d">Oct 15</span></td><td>Is the copy cued by what the results say, or by the history?</td><td>Result IDs &times; a faithful note, plus deleting the copies and the empty thought at the end or everywhere (101 repeat states and 32 controls, 23 tasks)</td><td class="n">~2.5</td><td>The history. Edits to the results do nothing.</td></tr>
+          <tr><td>G3 pass 1<span class="d">Oct 15&ndash;16</span></td><td>Does lock-in survive T = 1? Does round 1 replicate on the v31 stack?</td><td>Control and always-block at T = 0.2, control at T = 1 (109 tasks, 3 arms)</td><td class="n">~4</td><td>Lock-in survives. Fewer loops start. Resolution doesn&rsquo;t move.</td></tr>
+          <tr><td>G3 pass 2<span class="d">Oct 16</span></td><td>Does pass 1 replicate?</td><td>Control at T = 0.2 and at T = 1 again (109 tasks, 2 arms)</td><td class="n">~2.4</td><td>Yes. And long runs never end on their own.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>Every one-step test scores the same frozen histories in each arm. Every whole-task arm runs the same pinned agent zip, four tasks at a time on one A100. Full records: <a href="ablation_G1.md">ablation_G1.md</a>, <a href="ablation_G2.md">ablation_G2.md</a>, and <a href="../loops/README.md">loops/README.md</a> for round 1 and G3.</figcaption>
+</figure>
+
+<div class="col">
+  <p class="kicker">Round 1 &middot; October 12</p>
+  <h2 id="round1">Where the questions came from</h2>
+  <p>Round 1 tried two levers. The first forces a real thought: the thought is opened for the model and can&rsquo;t close for 32 tokens (we call it T-open). At looping states where the model, free to think, had skipped the thought, 58% of the forced-thought calls escaped, against 11% (114 states in 36 tasks; +47 points, 95% interval 33 to 61). Where the model chose to think, forcing a thought changed nothing (62% against 63%). Figure 1 shows the hardest case: third-or-later copies where the model wrote no thought.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 1. What breaks a lock-in, one step ahead</p>
+    <p class="fig-sub">Third-or-later copies where the model wrote no real thought: 36 states in 14 tasks. Share of sampled calls that escape.</p>
+    <div class="chart" id="fig-r1" role="img" aria-label="Bar chart: the model skipping the thought escapes 3% of the time, the empty thought with thinking off 22%, the empty thought with thinking on 28%, and a forced real thought 69%."></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Context</th><th class="n">Sampled calls that escape</th><th class="n">p(copy) at T = 0.2</th></tr></thead>
+        <tbody>
+          <tr><td>The student as it ran (thinking off)</td><td class="n">&ndash;</td><td class="n">0.99</td></tr>
+          <tr><td>Thinking on; the model skips the thought</td><td class="n">1 of 36 (3%)</td><td class="n">0.97</td></tr>
+          <tr><td>Empty thought, thinking off (block)</td><td class="n">8 of 36 (22%)</td><td class="n">0.47</td></tr>
+          <tr><td>Empty thought, thinking on (C-none)</td><td class="n">10 of 36 (28%)</td><td class="n">0.39</td></tr>
+          <tr><td>Forced real thought (T-open)</td><td class="n">25 of 36 (69%)</td><td class="n">0.11</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>The &ldquo;empty thought&rdquo; is the four tokens <code>&lt;|channel&gt;thought\n&lt;channel|&gt;</code> that Gemma 4&rsquo;s template inserts before the first call when thinking is off. The right-hand number on each bar is p(copy), the probability of sending the copy again. Data: Gate 1&rsquo;s replay, report section 4.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 1 &middot; Forced thought &middot; <code>fastapi_14246</code>, the 26th copy (call 35)</p>
+      <p class="case-title">A thought names the dead end</p>
+      <span class="verdict"><i class="sw k-esc" aria-hidden="true"></i>Escapes</span>
+    </div>
+    <pre class="ctx"><span class="ix"> 8</span>  grep -n "get_openapi_route" fastapi/openapi/utils.py      <span class="r">exit 1, no output</span>
+<span class="ix"> 9</span>  grep -n "get_openapi_operation" fastapi/openapi/utils.py  <span class="r">output</span>
+<span class="ix">10</span>  grep -n "get_openapi_route" fastapi/openapi/utils.py      <span class="r">exit 1, no output</span>
+<span class="ix"> &hellip;</span>  <span class="r">the same call and result, 25 more times (calls 11&ndash;35)</span></pre>
+    <div class="thought">
+      <p class="who">T-open&rsquo;s thought at call 35 (excerpt)</p>
+      <blockquote><p>Okay, I&rsquo;ve spent some time trying to find <code>get_openapi_route</code> in <code>fastapi/openapi/utils.py</code> but it seems I was mistaken about the function name or it&rsquo;s not there.</p></blockquote>
+      <p class="then">Next call: <code>grep -n "separate_input_output_schemas" fastapi/openapi/utils.py</code></p>
+    </div>
+  </div>
+  <figcaption>The function doesn&rsquo;t exist. The student gives the 27th copy probability 1.00. With the thought forced open, the copy&rsquo;s probability is 0.00 and the call moves on. The same state comes back in Examples 2 and 3.</figcaption>
+</figure>
+
+<div class="col">
+  <p>The second lever, the always-block template, forces the four-token empty thought before every call, over whole tasks. Runs got shorter and started more often, and the arm solved the same 37 of 109 tasks as the control. Both results left one question open: what exactly is the model copying? Round 2 took the loop apart one piece at a time.</p>
+
+  <p class="kicker">G1 &middot; October 14</p>
+  <h2 id="g1">Copies cause copies, if they are identical</h2>
+  <p>If a loop reinforces itself, adding copies to a fixed history should raise the chance of one more. G1 takes 60 histories in 56 tasks, each ending just after the first time an empty search ran. Every arm adds blocks that carry the identical empty result, so the arms differ only in the call:</p>
+  <ul>
+    <li><b>dose2, dose4:</b> the same call again, once or three times;</li>
+    <li><b>para2, para4:</b> one or three re-spellings of the same search (swapped quotes, long flags, <code>-e</code>, a dropped trailing slash), each keeping grep&rsquo;s empty output;</li>
+    <li><b>var2:</b> a different empty search the agent made later in the task (24 histories).</li>
+  </ul>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 2. Forced copies against the closed loop</p>
+    <p class="fig-sub">Probability that the next call is one more copy, at the run&rsquo;s sampling (T = 0.2)</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-copy"></span>Identical copies added (G1)</li>
+      <li><span class="sw k-stale"></span>Re-spelled copies added (G1)</li>
+      <li><span class="sw k-ctrl"></span>Closed loop, as observed</li>
+    </ul>
+    <div class="chart" id="fig-g1" role="img" aria-label="Grouped columns. Once: forced 0.2%, closed loop 2.5%. Twice in a row: identical 10%, re-spelled 3%, closed loop 77.5%. Four times in a row: identical 43%, re-spelled 4%, closed loop 95.7% (runs of three or more)."></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Arm</th><th class="n">p(c), T = 0.2</th><th class="n">p(c), exact</th><th class="n">Sampled: exact copy</th><th class="n">Sampled: escape</th></tr></thead>
+        <tbody>
+          <tr><td><code>dose1</code>: c once (the history)</td><td class="n">0.002</td><td class="n">0.006</td><td class="n">0%</td><td class="n">92%</td></tr>
+          <tr><td><code>dose2</code>: c twice in a row</td><td class="n">0.098</td><td class="n">0.052</td><td class="n">12%</td><td class="n">79%</td></tr>
+          <tr><td><code>dose4</code>: four in a row</td><td class="n">0.434</td><td class="n">0.307</td><td class="n">41%</td><td class="n">53%</td></tr>
+          <tr><td><code>para2</code>: c, then one re-spelling</td><td class="n">0.027</td><td class="n">0.009</td><td class="n">3%</td><td class="n">84%</td></tr>
+          <tr><td><code>para4</code>: c, then three re-spellings</td><td class="n">0.038</td><td class="n">0.015</td><td class="n">4%</td><td class="n">84%</td></tr>
+          <tr><td><code>var2</code>: c, then a different search</td><td class="n">0.000</td><td class="n">0.003</td><td class="n">0%</td><td class="n">97%</td></tr>
+          <tr><td>Closed loop (round 1&rsquo;s control): after 1, 2, and 3+ identical calls</td><td class="n" colspan="4">0.025 &middot; 0.775 &middot; 0.957</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>The closed-loop bar in the last group is for runs of three or more identical calls; in the first it is the rate at which any call is followed by its own copy. The populations differ: G1 uses first occurrences of empty searches, picked by history, while the closed loop counts every run the agent actually got into. Paired dose4 &minus; para4: +0.38 (0.26 to 0.50), 10,000 resamples of tasks.</figcaption>
+</figure>
+
+<div class="col">
+  <ol class="readings">
+    <li><span><b>Identical copies raise the next copy.</b> p(c) goes from 0.002 to 0.098 to 0.434, and sampled copies from 0% to 12% to 41%. In the model&rsquo;s own probabilities it rises with each dose in 59 of 60 histories, by a median 2.5 log-odds per added copy between two and four.</span></li>
+    <li><span><b>Re-spellings don&rsquo;t.</b> Three re-spelled copies add as many tokens as three identical ones and leave p(c) at 0.038. Seeing the same failure four times isn&rsquo;t enough. The whole call has to recur.</span></li>
+    <li><span><b>It is far below the closed loop.</b> Two forced copies give a third about 10% of the time; in real runs, 77%. Four give 43%, against 96%. So the copies alone don&rsquo;t explain the curve. Which histories end up looping matters as much. G2 puts a size on that.</span></li>
+  </ol>
+</div>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 2 &middot; G1 &middot; <code>fastapi_14246</code>, just after call 8</p>
+      <p class="case-title">Two copies tip it, four lock it, re-spellings do nothing</p>
+      <span class="verdict"><i class="sw k-copy" aria-hidden="true"></i>Identical copies cause copies</span>
+    </div>
+    <pre class="ctx"><span class="ix"> 6</span>  grep -r "separate_input_output_schemas" fastapi/         <span class="r">output</span>
+<span class="ix"> 7</span>  read_file fastapi/openapi/utils.py                       <span class="r">ok</span>
+<span class="ix"> 8</span>  grep -n "get_openapi_route" fastapi/openapi/utils.py     <span class="r">exit 1, no output</span>   <span class="lbl">&larr; c, first time</span>
+<span class="add">+ dose2, dose4: the same call and result, once or three more times</span>
+<span class="add">+ para4: grep -n 'get_openapi_route' &hellip; / grep --line-number "get_openapi_route" &hellip; / grep -n -e "get_openapi_route" &hellip;</span></pre>
+    <div class="table-wrap">
+      <table class="arms">
+        <thead><tr><th>Arm</th><th class="n">p(c), exact</th><th>Three sampled calls</th></tr></thead>
+        <tbody>
+          <tr><td><code>dose1</code><span class="d">the history as it ran</span></td><td class="n">0.002</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "get_openapi_operation" fastapi/openapi/utils.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td><code>dose2</code><span class="d">one copy added</span></td><td class="n">0.234</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -n "get_openapi_route" fastapi/openapi/utils.py</code><span class="x">&times;1</span></span></li><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "get_openapi" fastapi/openapi/utils.py</code><span class="x">&times;2</span></span></li></ul></td></tr>
+          <tr><td><code>dose4</code><span class="d">three copies added</span></td><td class="n">0.661</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -n "get_openapi_route" fastapi/openapi/utils.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td><code>para2</code><span class="d">one re-spelling added</span></td><td class="n">0.054</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "get_openapi_operation" fastapi/openapi/utils.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td><code>para4</code><span class="d">three re-spellings added</span></td><td class="n">0.024</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "get_openapi_operation" fastapi/openapi/utils.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>The agent&rsquo;s real next call (call 9) was the <code>get_openapi_operation</code> grep that every escape here finds. In the real run it then went back to call 8&rsquo;s grep and sent it 49 times in a row. At four copies the model&rsquo;s own probability is 0.66; sampling at T = 0.2 turns that into 1.00, so all three samples copy.</figcaption>
+</figure>
+
+<div class="col">
+  <p class="kicker">G2 &middot; October 15</p>
+  <h2 id="g2">The results don&rsquo;t matter, the history does</h2>
+  <p>G1 changed the call and kept the result. G2 keeps every call and changes the results, and adds three edits to the history. It uses 101 repeat states in 23 tasks: each ends just after an empty search <i>c</i> that repeats an identical earlier call with the identical result, with no file edit since. 32 first failures serve as controls. Each state is rendered eight ways:</p>
+  <ul>
+    <li><b>The results, a 2 &times; 2.</b> Every repeated result gets an 8-digit ID: one shared ID, or a different ID on each, so the results stop matching. Crossed with that, a 14-token note: neutral (&ldquo;The tool server returned this response to the agent in the current session.&rdquo;) or faithful (&ldquo;The search completed and found zero matches for this pattern in these paths.&rdquo;). Neither note says what to do.</li>
+    <li><b>The history.</b> <code>dedup</code> deletes <i>c</i>&rsquo;s earlier copies. <code>block</code> ends the context with the empty thought. <code>think_all</code> puts the empty thought before every earlier call as well, and at the end.</li>
+  </ul>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 3. What each edit does to p(c)</p>
+    <p class="fig-sub">Change in the model&rsquo;s exact probability of copying, all 101 repeat states, with 95% intervals over tasks</p>
+    <div class="chart" id="fig-g2f" role="img" aria-label="Dot plot. Result edits: varying IDs minus 0.005, faithful note plus 0.020, added tokens minus 0.004. History edits: empty thought at the end minus 0.317, empty thought before every call plus 0.002, earlier copies deleted minus 0.407."></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Edit</th><th>Contrast</th><th class="n">p(c), exact</th><th class="n">p(c), T = 0.2</th><th class="n">Sampled escape</th></tr></thead>
+        <tbody>
+          <tr><td>Varying IDs</td><td>main effect of the 2 &times; 2</td><td class="n">&minus;0.005 (&minus;0.009 to &minus;0.002)</td><td class="n">+0.004</td><td class="n">+0.003</td></tr>
+          <tr><td>Faithful note</td><td>main effect of the 2 &times; 2</td><td class="n">+0.020 (+0.005 to +0.036)</td><td class="n">+0.000</td><td class="n">&minus;0.050</td></tr>
+          <tr><td>The added tokens alone</td><td>neutral note, one ID &minus; no edit</td><td class="n">&minus;0.004 (&minus;0.012 to +0.003)</td><td class="n">&minus;0.009</td><td class="n">+0.007</td></tr>
+          <tr><td>Empty thought at the end</td><td>block &minus; no edit</td><td class="n">&minus;0.317 (&minus;0.380 to &minus;0.250)</td><td class="n">&minus;0.258</td><td class="n">+0.132</td></tr>
+          <tr><td>Empty thought before every call</td><td>think_all &minus; no edit</td><td class="n">+0.002 (&minus;0.016 to +0.018)</td><td class="n">&minus;0.104</td><td class="n">+0.135</td></tr>
+          <tr><td>Earlier copies deleted</td><td>dedup &minus; no edit</td><td class="n">&minus;0.407 (&minus;0.477 to &minus;0.329)</td><td class="n">&minus;0.403</td><td class="n">+0.340</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>The two result edits are the 2 &times; 2&rsquo;s main effects; the interaction is about 0 (&minus;0.002). The others are paired against the unedited state. Mean exact p(c) without edits is 0.469. Intervals: 10,000 resamples of the 23 tasks.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 4. What the model sampled instead</p>
+    <p class="fig-sub">Three sampled calls per state at T = 0.2, by what they were. The right-hand number is the exact p(c).</p>
+    <div class="seg" role="group" aria-label="Which states">
+      <button type="button" id="seg-copy" aria-pressed="true">Copy states (56)</button>
+      <button type="button" id="seg-ret" aria-pressed="false">Returns (45)</button>
+    </div>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-copy"></span>The same call again</li>
+      <li><span class="sw k-stale"></span>Another stale call</li>
+      <li><span class="sw k-esc"></span>Escape</li>
+    </ul>
+    <div class="chart" id="fig-g2s" role="img" aria-label="Stacked bars. At copy states, every result edit keeps the copy above 90%. Deleting the copies gives 29% copy, 28% other stale, 43% escape. The empty thought at the end gives 49% copy, 38% other stale, 12% escape. The empty thought before every call gives 86% copy."></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Rendering</th><th class="n">Copies: p(c)</th><th class="n">Copy / other stale / escape</th><th class="n">Returns: p(c)</th><th class="n">Copy / other stale / escape</th></tr></thead>
+        <tbody id="g2s-table"></tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>A copy state is one where <i>c</i> was also the call just before (56 states in 18 tasks; 44 of them hold five or more copies). A return is one where <i>c</i> comes back after other calls (45 states in 21 tasks). No sample was malformed.</figcaption>
+</figure>
+
+<div class="col">
+  <ol class="readings">
+    <li><span><b>Edits to the results do nothing useful.</b> Varying IDs moves p(c) by &minus;0.005. The faithful note moves it by +0.020: slightly <em>more</em> copying, and 5 points fewer escapes. Round 1&rsquo;s note and hint did move the copy (0.94 to 0.49 and 0.45 at third-or-later copies), but they told the model what to do (&ldquo;Do not run it again&rdquo;). A description of the failure doesn&rsquo;t move the copy. An instruction does.</span></li>
+    <li><span><b>Edits to the history do.</b> Deleting the earlier copies cuts p(c) by 0.41. The empty thought at the end cuts it by 0.32.</span></li>
+    <li><span><b>The block is a pattern break.</b> With the empty thought before every earlier call too, p(c) is back where it started. At copy states the copy returns in full: 0.818, against 0.791 with no thought anywhere. The block works because the end of the context no longer looks like the moments just before the earlier copies. Put the same tokens there as well, and the match is back.</span></li>
+    <li><span><b>Dedup and the block fail differently.</b> At copy states the block mostly turns copies into <em>other</em> stale calls (+0.33) rather than escapes (+0.10). That is the fragmentation round 1 saw over whole tasks, one step ahead. Deleting the copies turns them into escapes (+0.41).</span></li>
+    <li><span><b>Selection, measured.</b> Deleting the copies takes a copy state back to roughly where its run began: <i>c</i> once, after the same history. There p(c) is already 0.074, against 0.009 at first failures. Copies alone (G1&rsquo;s four-copy arm) give 0.31, the state alone 0.07, both together 0.79. Runs begin where the model already leans towards <i>c</i>, and the copies then lock it in.</span></li>
+    <li><span><b>Returns are another regime.</b> When <i>c</i> comes back after other calls, the model cycles over several stale calls: <i>c</i> 30% of the time, others 50%. p(c) barely moves, but dedup, the block and <code>think_all</code> each raise escapes by 18 to 26 points. The copies also suppress the model&rsquo;s own empty thought: at copy states it opens one 11% of the time, and 58% once the copies are deleted.</span></li>
+  </ol>
+  <p>Four states show how each edit works on a single history.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 3 &middot; G2 &middot; <code>fastapi_14246</code>, the 37th identical call (call 45)</p>
+      <p class="case-title">IDs, a faithful note and the block all fail; deleting the copies escapes</p>
+      <span class="verdict"><i class="sw k-esc" aria-hidden="true"></i>Only dedup escapes</span>
+    </div>
+    <pre class="ctx"><span class="ix"> 8</span>  grep -n "get_openapi_route" fastapi/openapi/utils.py      <span class="r">exit 1, no output</span>
+<span class="ix">10</span>  grep -n "get_openapi_route" fastapi/openapi/utils.py      <span class="r">exit 1, no output</span>
+<span class="ix"> &hellip;</span>  <span class="r">the same call and result at every step up to call 45</span>
+
+<span class="lbl">Each of those results, as the result edits render it</span>
+{"status": "error", "error_type": "CommandError", "error_message": "",
+ "details": {"stdout": "", "stderr": "", "exit_code": 1},
+ <span class="add">"note": "The search completed and found zero matches for this pattern in these paths.",</span>   <span class="r">&larr; faithful note</span>
+ <span class="add">"id": "29883906"</span>}                                                                     <span class="r">&larr; a new ID on each result</span></pre>
+    <div class="table-wrap">
+      <table class="arms">
+        <thead><tr><th>Rendering</th><th class="n">p(c), exact</th><th>Three sampled calls</th></tr></thead>
+        <tbody>
+          <tr><td>No edit</td><td class="n">0.986</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -n "get_openapi_route" fastapi/openapi/utils.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Varying IDs<span class="d">neutral note</span></td><td class="n">0.976</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span>the same grep<span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Faithful note<span class="d">one ID</span></td><td class="n">0.994</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span>the same grep<span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Empty thought at the end</td><td class="n">0.544</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span>the same grep<span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Earlier copies deleted</td><td class="n">0.091</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "get_openapi_route" fastapi/routing.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>Thirty-seven results that each say &ldquo;found zero matches&rdquo; raise the copy slightly (0.986 to 0.994). With the copies deleted the model searches another file for the same name. That is an escape by our definition, though the function exists in neither file.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 4 &middot; G2 &middot; <code>fastapi_14962</code>, the 9th copy in a row (call 19)</p>
+      <p class="case-title">The block escapes, until every earlier call gets one too</p>
+      <span class="verdict"><i class="sw k-copy" aria-hidden="true"></i><code>think_all</code> restores the copy</span>
+    </div>
+    <pre class="ctx"><span class="ix">    6</span>  grep -n "def get_route_handler" fastapi/routing.py       <span class="r">output (line 684)</span>
+<span class="ix">    7</span>  grep -n "def get_endpoint_handler" fastapi/routing.py    <span class="r">exit 1, no output</span>
+<span class="ix">    8</span>  grep -n "def get_endpoint" fastapi/routing.py            <span class="r">exit 1, no output</span>
+<span class="ix">    9</span>  grep -n "def get_endpoint_handler" fastapi/routing.py    <span class="r">exit 1, no output</span>
+<span class="ix">   10</span>  grep -n "def get_route_handler" fastapi/routing.py       <span class="r">output</span>
+<span class="ix">11&ndash;19</span>  grep -n "def get_endpoint_handler" fastapi/routing.py    <span class="r">exit 1, no output</span>   &times;9
+
+<span class="lbl">The end of the context, three ways</span>
+no edit     &hellip; result  call c  result  call c  result  &rarr; ?
+block       &hellip; result  call c  result  call c  result  <span class="add">&lt;|channel&gt;thought\n&lt;channel|&gt;</span> &rarr; ?
+think_all   &hellip; result  <span class="add">&lt;&hellip;thought&hellip;&gt;</span> call c  result  <span class="add">&lt;&hellip;thought&hellip;&gt;</span> call c  result  <span class="add">&lt;|channel&gt;thought\n&lt;channel|&gt;</span> &rarr; ?</pre>
+    <div class="table-wrap">
+      <table class="arms">
+        <thead><tr><th>Rendering</th><th class="n">p(c), exact</th><th>Three sampled calls</th></tr></thead>
+        <tbody>
+          <tr><td>No edit</td><td class="n">0.948</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -n "def get_endpoint_handler" fastapi/routing.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Empty thought at the end</td><td class="n">0.076</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "def " fastapi/routing.py | grep "handler"</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Empty thought before every call</td><td class="n">0.994</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span>the same grep<span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Earlier copies deleted</td><td class="n">0.028</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -n "def get_endpoint_response" fastapi/routing.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>The same four tokens that break the loop at the end bring it back when they also precede each earlier copy. Then the end of the context matches the earlier boundaries again. That points to a match on the history, not to the thinking mode switching on.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 5 &middot; G2 &middot; <code>fastapi_14482</code>, the 18th copy in a row (call 27)</p>
+      <p class="case-title">The block swaps one stale call for another; dedup leaves</p>
+      <span class="verdict"><i class="sw k-stale" aria-hidden="true"></i>Block: other stale</span>
+    </div>
+    <pre class="ctx"><span class="ix">    1</span>  grep -r "arbitrary_types_allowed" fastapi/                 <span class="r">exit 1, no output</span>
+<span class="ix">    2</span>  grep -r "arbitrary_types_allowed" .                        <span class="r">output: matches in tests/ only</span>
+<span class="ix">    3</span>  grep -r "arbitrary_types_allowed" fastapi/ | head -n 20    <span class="r">exit 0, no output</span>
+<span class="ix">  4&ndash;8</span>  grep -r "arbitrary_types_allowed" fastapi/                 <span class="r">exit 1, no output</span>   &times;5
+<span class="ix">    9</span>  grep -r "arbitrary_types_allowed" .                        <span class="r">output, as call 2</span>
+<span class="ix">10&ndash;27</span>  grep -r "arbitrary_types_allowed" fastapi/                 <span class="r">exit 1, no output</span>   &times;18</pre>
+    <div class="table-wrap">
+      <table class="arms">
+        <thead><tr><th>Rendering</th><th class="n">p(c), exact</th><th>Three sampled calls</th></tr></thead>
+        <tbody>
+          <tr><td>No edit</td><td class="n">0.965</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -r "arbitrary_types_allowed" fastapi/</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Empty thought at the end</td><td class="n">0.135</td><td><ul class="samples"><li><span class="what"><i class="sw k-stale" aria-hidden="true"></i>other stale</span><span><code>grep -r "arbitrary_types_allowed" .</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Earlier copies deleted</td><td class="n">0.054</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>find fastapi -name "*.py" | xargs grep -l "arbitrary_types_allowed"</code></span></li><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -r "arbitrary_types_allowed" fastapi/ || echo "Not found"</code></span></li><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>ls -R fastapi/</code></span></li></ul></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>With the block the agent hops back to the other search it has already alternated with (calls 2 and 9). That is the A&hellip;A B A&hellip;A pattern the always-block arm produces over whole tasks (Example 7). With the copies deleted, all three samples opened the empty thought themselves and tried something new.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 6 &middot; G2 &middot; <code>fastapi_14616</code>, a return (call 25)</p>
+      <p class="case-title">The faithful note makes it re-run the search it describes</p>
+      <span class="verdict"><i class="sw k-copy" aria-hidden="true"></i>Note: copies</span>
+    </div>
+    <pre class="ctx"><span class="ix">   16</span>  grep -n "Json" fastapi/params.py                  <span class="r">exit 1, no output</span>
+<span class="ix">17&ndash;24</span>  grep -n "Json" in eight more files               <span class="r">all exit 1, no output</span>
+<span class="ix">   25</span>  grep -n "Json" fastapi/params.py                  <span class="r">exit 1, no output</span>   <span class="lbl">&larr; back to call 16</span></pre>
+    <div class="table-wrap">
+      <table class="arms">
+        <thead><tr><th>Rendering</th><th class="n">p(c), exact</th><th>Three sampled calls</th></tr></thead>
+        <tbody>
+          <tr><td>No edit</td><td class="n">0.155</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>ls fastapi/params.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Neutral note, one ID</td><td class="n">0.117</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -r "Json" fastapi/</code><span class="x">&times;2</span></span></li><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -n "Json" fastapi/params.py</code><span class="x">&times;1</span></span></li></ul></td></tr>
+          <tr><td>Neutral note, varying IDs</td><td class="n">0.119</td><td><ul class="samples"><li><span class="what"><i class="sw k-esc" aria-hidden="true"></i>escape</span><span><code>grep -r "Json" fastapi/</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Faithful note, one ID</td><td class="n">0.448</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span><code>grep -n "Json" fastapi/params.py</code><span class="x">&times;3</span></span></li></ul></td></tr>
+          <tr><td>Faithful note, varying IDs</td><td class="n">0.372</td><td><ul class="samples"><li><span class="what"><i class="sw k-copy" aria-hidden="true"></i>copy</span><span>the same grep<span class="x">&times;3</span></span></li></ul></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>All ten empty greps carry the note, so the context now says &ldquo;found zero matches&rdquo; ten times. The agent&rsquo;s real next call was <code>ls fastapi/params.py</code>, as in the unedited replay. This is the strongest case among the 101 states; on average the note adds +0.020.</figcaption>
+</figure>
+
+<div class="col">
+  <p class="kicker">G3 &middot; October 15&ndash;16, two passes</p>
+  <h2 id="g3">Over whole tasks, fewer loops start, but they still lock in</h2>
+  <p>G1 and G2 look one step ahead. G3 asks two questions over whole tasks. Is lock-in an artifact of sampling at 0.2? And do round 1&rsquo;s always-block results replicate on the v31 serving stack? Three arms ran on all 109 tasks: the control at T = 0.2, the always-block template at T = 0.2, and the control at T = 1.0 (Google&rsquo;s recommended setting; only the temperature line of the agent&rsquo;s zip changed). Pass 1 ran all three. Pass 2 repeated the two controls.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 5. Lock-in survives temperature 1</p>
+    <p class="fig-sub">Probability that the next call is one more copy, by how many identical calls came just before. Well-formed calls only.</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw line k-ctrl"></span>Control, T = 0.2 (2 passes)</li>
+      <li><span class="sw line k-t1"></span>Control, T = 1 (2 passes)</li>
+      <li><span class="sw line k-block"></span>Always-block, T = 0.2 (1 pass)</li>
+    </ul>
+    <div class="chart" id="fig-g3h" role="img" aria-label="Line chart. After 1 call: 2.5%, 1.6%, 5.0%. After 2: 67%, 51%, 68%. After 3 to 4: 91%, 67%, 79%. After 5 to 9: 96%, 91%, 90%. After 10 or more: 95%, 93%, 92%."></div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Identical calls so far</th><th class="n">Control, T = 0.2</th><th class="n">Control, T = 1</th><th class="n">Always-block</th></tr></thead>
+        <tbody id="g3h-table"></tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>Each point pools every step at that run length (number of steps in the table view). At three or more, T = 1 gives 0.87 against 0.95 at T = 0.2 (difference &minus;0.08, &minus;0.13 to &minus;0.05). Malformed calls lock in at about 0.93 at both temperatures and are left out here.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 6. What changes over whole tasks</p>
+    <p class="fig-sub">Control arms pooled over two passes (218 task runs); always-block one pass on v31 (109)</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-ctrl"></span>Control, T = 0.2</li>
+      <li><span class="sw k-t1"></span>Control, T = 1</li>
+      <li><span class="sw k-block"></span>Always-block, T = 0.2</li>
+    </ul>
+    <div class="mult">
+      <div><h4>Stale calls</h4><p class="msub">share of all calls</p><div class="chart" id="fig-m1" role="img" aria-label="Stale calls: 38.6%, 20.4%, 40.2%."></div></div>
+      <div><h4>Loop tasks</h4><p class="msub">task runs with bad calls &ge; half</p><div class="chart" id="fig-m2" role="img" aria-label="Loop tasks: 24.8%, 9.2%, 26.6%."></div></div>
+      <div><h4>Resolved</h4><p class="msub">share of task runs</p><div class="chart" id="fig-m3" role="img" aria-label="Resolved: 33.0%, 32.6%, 34.9%."></div></div>
+    </div>
+    <details class="alt"><summary>Show as a table</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Measure</th><th class="n">Control, T = 0.2</th><th class="n">Control, T = 1</th><th class="n">Always-block</th></tr></thead>
+        <tbody>
+          <tr><td>Stale calls</td><td class="n">3,080 of 7,979 (38.6%)</td><td class="n">1,558 of 7,623 (20.4%)</td><td class="n">1,421 of 3,536 (40.2%)</td></tr>
+          <tr><td>Loop tasks</td><td class="n">54 of 218 (24.8%)</td><td class="n">20 of 218 (9.2%)</td><td class="n">29 of 109 (26.6%)</td></tr>
+          <tr><td>Resolved</td><td class="n">72 of 218 (33.0%)</td><td class="n">71 of 218 (32.6%)</td><td class="n">38 of 109 (34.9%)</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+  <figcaption>T = 1 against T = 0.2, paired over tasks: stale share &minus;18.2 points; resolved &minus;0.5 points (&minus;5.0 to +4.1). Two passes can&rsquo;t detect a change of one or two tasks, and an inconclusive difference is not equivalence.</figcaption>
+</figure>
+
+<div class="col">
+  <ol class="readings">
+    <li><span><b>T = 1 cuts the onset.</b> Stale calls halve, copies fall from 28% to 12% of calls, and loop tasks from 25% to 9%. A copy right after a stale call becomes half as likely (0.100 to 0.052).</span></li>
+    <li><span><b>Lock-in survives.</b> Once a run is under way, T = 1 barely slows it. The model&rsquo;s own preference does the locking; low temperature only hardens it. That matches G1 and G2, whose effects were in the exact probabilities all along.</span></li>
+    <li><span><b>Resolution doesn&rsquo;t move,</b> and T = 1 has costs: 6.5 more timeouts per pass (+0.5 to +13.0) and 9.5 more tasks with a malformed call (+2.5 to +17.0).</span></li>
+    <li><span><b>The block replicates its shape, not round 1&rsquo;s stale drop.</b> Copy starts double (0.025 to 0.050), lock-in at three or more falls 5.6 points and re-entry into a past loop rises 26 points, as in round 1. But the stale share doesn&rsquo;t fall (+1.6 points), and loop tasks don&rsquo;t either. Round 1&rsquo;s &ldquo;stale share falls 5&ndash;6 points&rdquo; needs withdrawing.</span></li>
+  </ol>
+  <p>One task, <code>fastapi_13920</code>, shows all three arms. The issue asks for PEP 695 <code>TypeAliasType</code> support by vendoring a helper, <code>is_typealiastype</code>, from the typing-inspection package. The helper isn&rsquo;t in the repository yet, and the agent goes looking for it.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 7 &middot; G3 &middot; <code>fastapi_13920</code> in each arm</p>
+      <p class="case-title">One task, three arms: locked in, fragmented, un-looped. None solves it.</p>
+      <span class="verdict"><i class="sw k-esc" aria-hidden="true"></i>T = 1 escapes; 0 of 3 resolved</span>
+    </div>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-esc"></span>New call</li>
+      <li><span class="sw k-stale"></span>Repeat of an earlier call</li>
+      <li><span class="sw k-copy"></span>Copy of the call just before</li>
+      <li><span class="sw k-mal"></span>Malformed call</li>
+      <li><span class="sw k-edit"></span>Source edit applied</li>
+    </ul>
+    <p class="strip-head">Control, T = 0.2 <span>54 calls &middot; the same grep 37 times in a row &middot; unresolved</span></p>
+    <div class="chart strip" tabindex="0" data-strip="13920_ctrl" aria-label="Call timeline, control arm. Use the left and right arrow keys to step through the calls."></div>
+    <p class="strip-head">Always-block, T = 0.2 <span>54 calls &middot; two greps in alternation &middot; unresolved</span></p>
+    <div class="chart strip" tabindex="0" data-strip="13920_block" aria-label="Call timeline, always-block arm. Use the left and right arrow keys to step through the calls."></div>
+    <p class="strip-head">Control, T = 1 <span>49 calls &middot; 46 of them distinct &middot; unresolved</span></p>
+    <div class="chart strip" tabindex="0" data-strip="13920_t1" aria-label="Call timeline, control arm at temperature 1. Use the left and right arrow keys to step through the calls."></div>
+  </div>
+  <figcaption>Each square is one call, numbered from 0; hover over or tap a square to see it. <b>Control:</b> from call 13 the agent sends <code>grep -r "is_typealiastype" .</code> 37 times. The run ends only when the harness warns &ldquo;Only 10 tool call(s) remaining (50/60 used). Finalize your edits and call submit_patch soon.&rdquo; Three malformed edits follow. <b>Always-block:</b> the same grep alternates with <code>grep -r "lenient_issubclass" .</code> (4, 7, 5, 3, 1 copies), until a context compaction at call 39 breaks the pattern. <b>T = 1:</b> no loop; the agent probes <code>typing.TypeAliasType</code> in Python, edits <code>fastapi/_compat/shared.py</code> twice and submits. It still fails.</figcaption>
+</figure>
+
+<figure>
+  <div class="panel">
+    <div class="case-head">
+      <p class="case-kicker">Example 8 &middot; G3 &middot; <code>fastapi_14246</code> at T = 1</p>
+      <p class="case-title">Temperature 1 doesn&rsquo;t prevent a long loop</p>
+      <span class="verdict"><i class="sw k-copy" aria-hidden="true"></i>No escape until the warning</span>
+    </div>
+    <p class="strip-head">Control, T = 1 <span>58 calls &middot; the same grep 33 times in a row &middot; unresolved</span></p>
+    <div class="chart strip" tabindex="0" data-strip="14246_t1" aria-label="Call timeline, fastapi_14246 at temperature 1. Use the left and right arrow keys to step through the calls."></div>
+  </div>
+  <figcaption>The task of Examples 1 to 3, now at T = 1. Call 14 shows that <code>get_definitions</code> is imported in <code>fastapi/openapi/utils.py</code> (line 12), not defined there. From call 17 the agent nonetheless sends <code>grep -n "def get_definitions" fastapi/openapi/utils.py</code> 33 times. Again the run breaks only after the budget warning.</figcaption>
+</figure>
+
+<div class="col">
+  <h3 id="exits">Nothing inside a loop ends it</h3>
+  <p>Both examples end the same way, and so does almost every long run. On clean steps (no budget warning in the last result, no compaction before the next call), the control arm at T = 0.2 sent one more copy every time after five or more identical calls: 290 of 290 steps at five to nine, and 1,052 of 1,052 at ten or more. Every exit came from outside the loop.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Figure 7. How long runs end</p>
+    <p class="fig-sub">Every well-formed run of ten or more identical calls in the control arm at T = 0.2, two passes</p>
+    <div class="callout">
+      <div class="big">0 <small>of 58</small></div>
+      <p>ended on a clean step. The agent changed its call only after the harness&rsquo;s budget warning, after a context compaction, or when the task ended.</p>
+    </div>
+    <div class="waffle" id="waffle" role="img" aria-label="58 squares: 43 runs ended after the budget warning, 14 at a context compaction, 1 at the task's end."></div>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw k-warn"></span>After the budget warning (43)</li>
+      <li><span class="sw k-comp"></span>At a context compaction (14)</li>
+      <li><span class="sw k-end"></span>The task ended (1)</li>
+    </ul>
+  </div>
+  <figcaption>The budget warning arrives in the result of the 50th call. A compaction, which the harness runs periodically, summarises older turns of the history and can drop the earlier copies with them: an uncontrolled dedup.</figcaption>
+</figure>
+
+<div class="col">
+  <h3 id="rescue">Un-looping solves nothing on its own</h3>
+  <p>T = 1 gives a natural test of what loops cost. Take the tasks that loop in a control pass and look at the same pass at T = 1.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 2. The control&rsquo;s loop tasks, at T = 1</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pass</th><th class="n">Loop tasks in the control</th><th class="n">Not looping at T = 1</th><th class="n">Of those, solved by the control</th><th class="n">Solved at T = 1</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td class="n">27</td><td class="n">24</td><td class="n">4</td><td class="n">3</td></tr>
+          <tr><td>2</td><td class="n">27</td><td class="n">22</td><td class="n">6</td><td class="n">6</td></tr>
+          <tr><td>Both</td><td class="n">54</td><td class="n">46</td><td class="n">10</td><td class="n">9</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>In pass 1&rsquo;s 24 un-looped tasks, stale calls fell from 1,019 to 123, distinct calls per task rose from 15 to 33, and tasks with a source edit from 7 to 14. Yet 3 were solved against 4. In 23 of the 24, the control&rsquo;s loop began before its first source edit.</figcaption>
+</figure>
+
+<div class="col">
+  <p>The freed budget went into exploration, and exploration didn&rsquo;t find the fix. Loop task-runs resolve 20% of the time in the control, against 37% for the rest, but the loop looks more like a symptom of being lost than the cause of failing. An agent that loops before its first edit hasn&rsquo;t yet found where the change goes.</p>
+
+  <h2 id="together">Putting it together</h2>
+  <p>Across the three rounds the loop has a consistent shape. The model treats its own earlier calls as demonstrations. A copy needs the identical call (G1). It ignores what the results say (G2). It is broken by changing what precedes the next call, and restored by matching it again (<code>think_all</code>). Runs begin at states where the model already leans towards the call, and the copies then lock it in. Over whole tasks, sampling at T = 1 makes fewer runs begin but doesn&rsquo;t stop the ones that do. At T = 0.2, nothing the agent writes ends a long run; only the harness does. A real thought breaks the copy one step ahead, and the model seldom chooses to think inside a loop.</p>
+</div>
+
+<figure>
+  <div class="panel">
+    <p class="fig-title">Table 3. Every lever so far</p>
+    <div class="table-wrap">
+      <table class="tbl-lever">
+        <thead><tr><th>Lever</th><th>What it edits</th><th>One step ahead</th><th>Over whole tasks</th><th>Escape?</th></tr></thead>
+        <tbody>
+          <tr><td>Forced real thought<span class="d">round 1, T-open</span></td><td>Thinking</td><td>Escapes 58% where the model skipped thinking (11% on its own)</td><td>Not run</td><td>Yes</td></tr>
+          <tr><td>Note or hint with an instruction<span class="d">round 1</span></td><td>The last result</td><td>p(copy) 0.94 to 0.49 and 0.45 at third-or-later copies</td><td>Not run</td><td>Partly</td></tr>
+          <tr><td>Identical copies added<span class="d">G1</span></td><td>The history</td><td>p(c) 0.002 to 0.434 at four copies</td><td>&ndash;</td><td>Causes copies</td></tr>
+          <tr><td>Re-spelled copies added<span class="d">G1</span></td><td>The history</td><td>p(c) 0.002 to 0.038</td><td>&ndash;</td><td>No effect</td></tr>
+          <tr><td>Varying IDs<span class="d">G2</span></td><td>The results</td><td>&minus;0.005</td><td>&ndash;</td><td>No</td></tr>
+          <tr><td>Faithful &ldquo;zero matches&rdquo; note<span class="d">G2</span></td><td>The results</td><td>+0.020; 5 points fewer escapes</td><td>&ndash;</td><td>No (slightly worse)</td></tr>
+          <tr><td>Empty thought at the end<span class="d">G2 one step; round 1 and G3 whole tasks</span></td><td>The end of the context</td><td>At copy states p(c) 0.79 to 0.22; mostly other stale calls</td><td>Runs fragment; stale share unchanged on v31; 38 vs 35 solved</td><td>Partly</td></tr>
+          <tr><td>Empty thought before every call<span class="d">G2, think_all</span></td><td>Every call boundary</td><td>At copy states p(c) back to 0.82</td><td>Not run</td><td>No</td></tr>
+          <tr><td>Earlier copies deleted<span class="d">G2, dedup</span></td><td>The history</td><td>At copy states p(c) 0.79 to 0.07; escapes 3% to 43%</td><td>Not run yet</td><td>Yes</td></tr>
+          <tr><td>Temperature 1<span class="d">G3</span></td><td>Sampling</td><td>&ndash;</td><td>Stale 39% to 20%, loop tasks 25% to 9%; lock-in at 3+ still 0.87; solved 32.6% vs 33.0%</td><td>Fewer loops start</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <figcaption>&ldquo;Escape&rdquo; is one step ahead throughout. No lever has yet raised resolution beyond the noise of two passes.</figcaption>
+</figure>
+
+<div class="col">
+  <h2 id="next">What we would try next</h2>
+  <p>The deadline is November 12, and the plan freezes experiments on October 27. In priority order:</p>
+  <ol class="next">
+    <li>
+      <h3>Dedup over whole tasks</h3>
+      <p>Collapse consecutive identical call and result pairs in what the model sees, against the v31 control, two passes. It is the one lever that turned copies into escapes rather than other stale calls, and G3 says exits only come from changes to the context, which compactions already make by accident. The main track&rsquo;s token proxy, which edits every chat request, could carry it; a chat template might too. Measure the stale share, re-entry, and what the freed calls buy (distinct calls, source edits) before resolution.</p>
+      <p class="meta">Takes G4&rsquo;s slot, since G2 failed G4&rsquo;s condition. About 3 A100-hours. Proposed, not built.</p>
+    </li>
+    <li>
+      <h3>A forced thought where the agent gets stuck</h3>
+      <p>Open a real thought when the same call arrives a second time. One step ahead this escapes 58&ndash;69% of the time where the model skipped thinking. The open question is whether an escape becomes progress over a whole task, since un-looping alone did not.</p>
+      <p class="meta">Listed as out of scope for round 2 (a failure-triggered controller), so it needs a decision first.</p>
+    </li>
+    <li>
+      <h3>Where the freed budget goes</h3>
+      <p>A CPU-only audit of the existing T = 1 traces: in un-looped tasks, did the extra calls reach the right file and function, and what went wrong after the edit? If loops start before the agent knows where to edit, localisation is the real bottleneck, and loop-breaking alone can&rsquo;t move resolution.</p>
+      <p class="meta">No GPU. Uses files already copied locally.</p>
+    </li>
+    <li>
+      <h3>Exit distillation, only if the first item lands</h3>
+      <p>Train the 31B on loop contexts, with the call that dedup or the forced thought produced as the target, against its own copies as targets. A clipped-against-unclipped rollout comparison is not worth running as designed: success filtering already removes most loops (20 of 175 resolved task runs hold a run of three or more), and clipping removes the loop states a model would need to learn recovery from.</p>
+      <p class="meta">Gated on the first item by about October 20, and on a trainer check on v31. Not decided.</p>
+    </li>
+    <li>
+      <h3>Cheap one-step follow-ups</h3>
+      <p>The missing cell of the thought 2 &times; 2: the empty thought before every earlier call but not at the end. If the match reading holds, the model writes the empty thought itself and copies through it. Also: score the empty-thought tokens alone at each G1 dose, and add G2&rsquo;s copy/return split to <code>loop_report.py</code>.</p>
+      <p class="meta">Under an A100-hour each.</p>
+    </li>
+    <li>
+      <h3>Generality</h3>
+      <p>86 of G2&rsquo;s 101 states and 39 of G1&rsquo;s 60 histories come from fastapi, and three tasks give a third of G2&rsquo;s states. A 12B control run on v31 is the cheapest check on a second model, though any one-step claim there needs its own replay states.</p>
+      <p class="meta">One A100 job per pass; the 12B has never been run in this harness.</p>
+    </li>
+  </ol>
+
+  <h2 id="limits">What this doesn&rsquo;t show</h2>
+  <ul>
+    <li><b>Progress.</b> An escape is a fresh call one step ahead. Example 3&rsquo;s escape searches a second file for a function that exists in neither.</li>
+    <li><b>Mechanism inside the model.</b> &ldquo;Match&rdquo; describes behaviour. Nothing here looks at attention or activations.</li>
+    <li><b>Small effects on resolution.</b> Two passes of 109 tasks can&rsquo;t detect a change of one or two tasks.</li>
+    <li><b>Other wordings.</b> Each note had one wording, by design. A stronger surface break than an 8-digit ID wasn&rsquo;t tried.</li>
+    <li><b>Exact replication.</b> G1 and G2 score v30 histories in the v31 serving environment. The replay reproduces the runs (mean p(c) 0.639 against a recorded copy rate of 0.634; AUC 0.95), but it is one step ahead.</li>
+    <li><b>Other agents.</b> One model, one harness, thinking off.</li>
+  </ul>
+</div>
+
+<footer class="about col">
+  <h2>About the data</h2>
+  <ul>
+    <li><b>Agent:</b> Gemma 4 31B int4 (QAT), the pinned <code>off_args</code> zip (sha <code>532374430fe2</code>), thinking off, T = 0.2 / top-p 0.95 / top-k 64 unless stated. 109 tasks: 70 dev-sound and 39 rich-sound.</li>
+    <li><b>Round 1:</b> Gate 1&rsquo;s replay with T-open (job 11012220); closed-loop control and always-block (11012947, 11012949), report <code>report_p1_1012-1727</code>. Wheelhouse v30.</li>
+    <li><b>G1:</b> jobs 11065759&ndash;62 at <code>6c16369</code>, <code>dose_baseline_nothink_args_v30_zip/</code>. <b>G2:</b> jobs 11091741&ndash;45 at <code>ed1b419</code>, <code>fb_baseline_nothink_args_v30_zip/</code>. Both on v31&rsquo;s serving environment (vLLM 0.19.1), one A100.</li>
+    <li><b>G3:</b> pass 1 jobs 11108041 / 11108044 / 11108053 at <code>03b7890</code>, report <code>report_p1_1015-1425</code>; pass 2 jobs 11144870 / 11144873, report <code>report_p2_1016-1640</code>. Same harness (<code>067143a2f3ec</code>) and vLLM build in every arm.</li>
+    <li>All work directories are under <code>/scratch/zha.j/gemma4/paper/</code> on Explorer. The splits beyond the reports (copies against returns, clean steps, run endings, rescue, the examples) come from local analyses of copied traces, not from scripts in this repository.</li>
+    <li>Records: <a href="ablation_G1.md">ablation_G1.md</a>, <a href="ablation_G2.md">ablation_G2.md</a>, <a href="../loops/README.md">loops/README.md</a> (round 1, G3&rsquo;s design and predictions), <a href="../loops/loops_reason_10_13.md">loops/loops_reason_10_13.md</a>, <a href="../loops/literature.md">loops/literature.md</a>. G3 has no record of its own yet.</li>
+  </ul>
+  <h2>Works mentioned</h2>
+  <ol class="refs">
+    <li>Holtzman, A. et al. The Curious Case of Neural Text Degeneration. ICLR 2020. Full text not available through your institution. Open copy: <a href="https://arxiv.org/abs/1904.09751">arXiv:1904.09751</a></li>
+    <li>Liu, J. et al. When History Fails to Become Experience: Action Calibration in Language Agents. 2026. Full text not available through your institution. Open copy: <a href="https://arxiv.org/abs/2610.02769">arXiv:2610.02769</a></li>
+    <li>Ross, S., Gordon, G. J. &amp; Bagnell, J. A. A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning. AISTATS 2011. Full text not available through your institution. Open copy: <a href="https://arxiv.org/abs/1011.0686">arXiv:1011.0686</a></li>
+    <li>Russell, S. &amp; Wefald, E. Principles of Metareasoning. Artificial Intelligence 49 (1991), 361&ndash;395. <a href="https://doi.org/10.1016/0004-3702(91)90015-C">doi:10.1016/0004-3702(91)90015-C</a> &middot; <a href="https://onesearch.library.northeastern.edu/openurl/01NEU_INST/01NEU_INST:NUL?genre=article&amp;aulast=Russell&amp;issn=0004-3702&amp;title=Artificial%20Intelligence&amp;atitle=Principles%20of%20metareasoning&amp;volume=49&amp;issue=1-3&amp;spage=361&amp;epage=395&amp;date=1991-05-01&amp;rft_id=info:doi/10.1016%2F0004-3702(91)90015-C&amp;rft_id=info:pmid/&amp;sid=LibKey">Access Options</a></li>
+    <li>Wan, Y. et al. Mitigating Conversational Inertia in Multi-Turn Agents. ICML 2026. Full text not available through your institution. Open copy: <a href="https://arxiv.org/abs/2602.03664">arXiv:2602.03664</a></li>
+    <li>Xu, J. et al. Learning to Break the Loop: Analyzing and Mitigating Repetitions for Neural Text Generation. NeurIPS 2022. Full text not available through your institution. Open copy: <a href="https://arxiv.org/abs/2206.02369">arXiv:2206.02369</a></li>
+  </ol>
+  <p class="refs">How these connect: Xu et al. and Holtzman et al. found that repetition reinforces itself in text generation; G1 isolates the same effect for tool calls. Liu et al.&rsquo;s fixed-history probe of a third identical action is G1&rsquo;s closest precedent. Wan et al.&rsquo;s conversational inertia names the tendency to follow one&rsquo;s own earlier turns, which G2 locates in the calls rather than the results. Ross et al. describe how imitation compounds its own errors, the frame for loops that start before the first edit. Russell and Wefald&rsquo;s value of computation is the frame for a model that thinks least where it is most confident. The full list is in <a href="../loops/literature.md">loops/literature.md</a>.</p>
+</footer>
+</article>
+</div>
+
+<div class="tip" id="tip" role="tooltip" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var tip = document.getElementById("tip");
+
+  /* ---------- theme ---------- */
+  var root = document.documentElement, themeBtn = document.getElementById("theme-btn");
+  var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function isDark() { var t = root.getAttribute("data-theme"); return t ? t === "dark" : !!(mq && mq.matches); }
+  function themeLabel() { var d = isDark(); themeBtn.textContent = d ? "Light mode" : "Dark mode"; themeBtn.setAttribute("aria-pressed", d ? "true" : "false"); }
+  try { var saved = localStorage.getItem("loop-recap-theme"); if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved); } catch (e) { /* storage blocked */ }
+  themeLabel();
+  themeBtn.addEventListener("click", function () {
+    var next = isDark() ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("loop-recap-theme", next); } catch (e) { /* storage blocked */ }
+    themeLabel();
+  });
+  if (mq && mq.addEventListener) mq.addEventListener("change", themeLabel);
+
+  /* ---------- helpers ---------- */
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(parent, x, y, s, cls, anchor) {
+    var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "start" }, parent);
+    t.textContent = s;
+    return t;
+  }
+  function tlen(t) { try { return t.getComputedTextLength(); } catch (e) { return t.textContent.length * 7; } }
+  function pct(v, d) { return (v * 100).toFixed(d || 0) + "%"; }
+  function sgn(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(3); }
+  function showTip(lines, cx, cy) {
+    tip.textContent = "";
+    lines.forEach(function (ln) { var d = document.createElement("div"); d.className = ln[0]; d.textContent = ln[1]; tip.appendChild(d); });
+    tip.hidden = false;
+    var r = tip.getBoundingClientRect(), x = cx + 14, y = cy + 16;
+    if (x + r.width > window.innerWidth - 8) x = Math.max(8, cx - r.width - 14);
+    if (y + r.height > window.innerHeight - 8) y = Math.max(8, cy - r.height - 14);
+    tip.style.transform = "translate(" + Math.round(x) + "px," + Math.round(y) + "px)";
+  }
+  function hideTip() { tip.hidden = true; }
+  function hit(node, lines) {
+    node.setAttribute("tabindex", "0");
+    node.addEventListener("pointermove", function (e) { showTip(lines, e.clientX, e.clientY); });
+    node.addEventListener("pointerleave", hideTip);
+    node.addEventListener("focus", function () { var r = node.getBoundingClientRect(); showTip(lines, r.left + r.width / 2, r.top + r.height / 2); });
+    node.addEventListener("blur", hideTip);
+  }
+  /* bars: 4px rounded data end, square at the baseline */
+  function hbar(x, y, w, h, r) {
+    if (w <= 0) return "";
+    r = Math.min(r, h / 2, w);
+    return "M" + x + "," + y + "h" + (w - r) + "a" + r + "," + r + " 0 0 1 " + r + "," + r + "v" + (h - 2 * r) +
+      "a" + r + "," + r + " 0 0 1 " + (-r) + "," + r + "h" + (-(w - r)) + "z";
+  }
+  function col(x, yTop, w, h, r) {
+    if (h <= 0) return "";
+    r = Math.min(r, w / 2, h);
+    return "M" + x + "," + (yTop + h) + "v" + (-(h - r)) + "a" + r + "," + r + " 0 0 1 " + r + "," + (-r) + "h" + (w - 2 * r) +
+      "a" + r + "," + r + " 0 0 1 " + r + "," + r + "v" + (h - r) + "z";
+  }
+  function svgFor(box, W, H, label) {
+    return el("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H, "aria-hidden": "true", focusable: "false" }, box);
+  }
+  function mount(target, draw) {
+    var box = typeof target === "string" ? document.getElementById(target) : target;
+    if (!box) return function () {};
+    var last = 0;
+    function go(force) {
+      var w = Math.round(box.clientWidth);
+      if (!w || (w === last && force !== true)) return;
+      last = w; box.textContent = ""; hideTip(); draw(box, w);
+    }
+    go();
+    if (window.ResizeObserver) new ResizeObserver(function () { go(); }).observe(box);
+    else window.addEventListener("resize", function () { go(); });
+    return function () { go(true); };
+  }
+
+  /* ---------- Figure 1: round 1 ---------- */
+  var R1 = [
+    { label: "Thinking on; the model skips the thought", n: "1 of 36", v: 1 / 36, p: "0.97" },
+    { label: "Empty thought, thinking off (block)", n: "8 of 36", v: 8 / 36, p: "0.47" },
+    { label: "Empty thought, thinking on (C-none)", n: "10 of 36", v: 10 / 36, p: "0.39" },
+    { label: "Forced real thought (T-open)", n: "25 of 36", v: 25 / 36, p: "0.11" }
+  ];
+  mount("fig-r1", function (box, W) {
+    var rowH = 52, top = 2, axisH = 22, H = top + R1.length * rowH + axisH;
+    var svg = svgFor(box, W, H);
+    var x1 = W - 120, sx = function (v) { return v * x1; };
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      el("line", { x1: sx(t), x2: sx(t), y1: top + 20, y2: H - axisH, "class": "grid" }, svg);
+      txt(svg, sx(t), H - 6, pct(t), "tick", t === 0 ? "start" : "middle");
+    });
+    R1.forEach(function (r, i) {
+      var y = top + i * rowH;
+      txt(svg, 0, y + 14, r.label, "glab");
+      var w = Math.max(sx(r.v), 2);
+      el("path", { d: hbar(0, y + 22, w, 18, 4), "class": "f-esc" }, svg);
+      var vt = txt(svg, w + 6, y + 36, pct(r.v), "val");
+      txt(svg, w + 12 + tlen(vt), y + 36, "p(copy) " + r.p, "rtxt");
+      var h = el("rect", { x: 0, y: y, width: W, height: rowH - 4, "class": "hit" }, svg);
+      hit(h, [["h", r.label], ["v", r.n + " sampled calls escape (" + pct(r.v) + ")"], ["", "p(copy) at T = 0.2: " + r.p]]);
+    });
+  });
+
+  /* ---------- Figure 2: G1 ---------- */
+  var G1 = {
+    groups: [["Once", "c, first time"], ["Twice in a row", ""], ["Four times in a row", "closed loop: 3 or more"]],
+    short: [["Once", "first time"], ["Twice", "in a row"], ["Four times", "closed loop: 3+"]],
+    series: [
+      { name: "Identical copies added", cls: "f-copy", vals: [0.002, 0.098, 0.434],
+        tips: ["dose1: the history as it ran", "dose2: one copy added", "dose4: three copies added"] },
+      { name: "Re-spelled copies added", cls: "f-stale", vals: [null, 0.027, 0.038],
+        tips: ["", "para2: one re-spelling added", "para4: three re-spellings added"] },
+      { name: "Closed loop, as observed", cls: "f-ctrl", vals: [0.025, 0.775, 0.957],
+        tips: ["any call followed by its own copy (round 1's control)", "after two identical calls (round 1's control)", "after three or more identical calls (round 1's control)"] }
+    ]
+  };
+  mount("fig-g1", function (box, W) {
+    var H = 300, ml = 38, mr = 4, mt = 22, mb = 46, pw = W - ml - mr, ph = H - mt - mb;
+    var svg = svgFor(box, W, H);
+    var sy = function (v) { return mt + ph * (1 - v); };
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      el("line", { x1: ml, x2: W - mr, y1: sy(t), y2: sy(t), "class": t === 0 ? "base" : "grid" }, svg);
+      txt(svg, ml - 8, sy(t) + 4, pct(t), "tick", "end");
+    });
+    var G = G1.groups.length, gw = pw / G, ns = G1.series.length;
+    var bw = Math.max(8, Math.min(24, (gw * 0.7 - (ns - 1) * 2) / ns));
+    G1.groups.forEach(function (g, gi) {
+      var cx = ml + gw * gi + gw / 2, total = ns * bw + (ns - 1) * 2, x0 = cx - total / 2;
+      G1.series.forEach(function (s, si) {
+        var v = s.vals[gi], bx = x0 + si * (bw + 2);
+        if (v == null) return;
+        var h = Math.max(ph * v, 1.5);
+        el("path", { d: col(bx, sy(0) - h, bw, h, 4), "class": s.cls }, svg);
+        txt(svg, bx + bw / 2, sy(0) - h - 5, Math.round(v * 100) + "%", "val sm", "middle");
+        var hr = el("rect", { x: bx - 1, y: mt, width: bw + 2, height: ph, "class": "hit" }, svg);
+        hit(hr, [["h", g[0] + " · " + s.name], ["v", "p = " + (v < 0.01 ? v.toFixed(3) : v.toFixed(3))], ["", s.tips[gi]]]);
+      });
+      var gl = gw < 170 ? G1.short[gi] : g;
+      txt(svg, cx, H - mb + 20, gl[0], "glab", "middle");
+      if (gl[1]) txt(svg, cx, H - mb + 37, gl[1], "gsub", "middle");
+    });
+  });
+
+  /* ---------- Figure 3: G2 forest ---------- */
+  var G2F = [
+    { title: "Edit the results", rows: [
+      { label: "Varying IDs on the repeated results", est: -0.005, lo: -0.009, hi: -0.002 },
+      { label: "Faithful note: “found zero matches”", est: 0.020, lo: 0.005, hi: 0.036 },
+      { label: "The added tokens alone", est: -0.004, lo: -0.012, hi: 0.003 } ] },
+    { title: "Edit the history", rows: [
+      { label: "Empty thought at the end (block)", est: -0.317, lo: -0.380, hi: -0.250 },
+      { label: "Empty thought before every call (think_all)", est: 0.002, lo: -0.016, hi: 0.018 },
+      { label: "Earlier copies deleted (dedup)", est: -0.407, lo: -0.477, hi: -0.329 } ] }
+  ];
+  mount("fig-g2f", function (box, W) {
+    /* wide: label | plot | value columns, so gridlines never cross text; narrow: label, value, then the whisker */
+    var wide = W >= 800, rowH = wide ? 36 : 62, headH = 30, axisH = 26;
+    var nRows = G2F.reduce(function (a, g) { return a + g.rows.length; }, 0);
+    var H = G2F.length * headH + nRows * rowH + axisH + 6;
+    var svg = svgFor(box, W, H);
+    var labW = wide ? Math.min(320, W * 0.37) : 0, valW = wide ? 186 : 0;
+    var px0 = wide ? labW + 14 : 8, px1 = wide ? W - valW - 14 : W - 8;
+    var d0 = -0.5, d1 = 0.1, sx = function (v) { return px0 + (v - d0) / (d1 - d0) * (px1 - px0); };
+    var ticks = wide ? [-0.5, -0.4, -0.3, -0.2, -0.1, 0, 0.1] : [-0.4, -0.2, 0];
+    var bands = [];
+    var y = 0;
+    G2F.forEach(function (g) {
+      txt(svg, 0, y + 20, g.title, "ghead");
+      y += headH;
+      g.rows.forEach(function (r) {
+        var py = wide ? y + rowH / 2 : y + 48, vs = sgn(r.est) + "  (" + sgn(r.lo) + " to " + sgn(r.hi) + ")";
+        bands.push(py);
+        txt(svg, 0, wide ? py + 5 : y + 14, r.label, "glab");
+        txt(svg, wide ? W : 0, wide ? py + 4 : y + 31, vs, "rtxt", wide ? "end" : "start");
+        r._py = py; r._vs = vs; r._y = y;
+        y += rowH;
+      });
+    });
+    ticks.forEach(function (t) {
+      if (wide) el("line", { x1: sx(t), x2: sx(t), y1: headH, y2: H - axisH, "class": t === 0 ? "zero" : "grid" }, svg);
+      else bands.forEach(function (py) { el("line", { x1: sx(t), x2: sx(t), y1: py - 9, y2: py + 9, "class": t === 0 ? "zero" : "grid" }, svg); });
+      txt(svg, sx(t), H - 8, t === 0 ? "0" : (t > 0 ? "+" : "−") + Math.abs(t).toFixed(1), "tick", "middle");
+    });
+    G2F.forEach(function (g) {
+      g.rows.forEach(function (r) {
+        el("line", { x1: sx(r.lo), x2: sx(r.hi), y1: r._py, y2: r._py, "class": "whisk" }, svg);
+        el("circle", { cx: sx(r.est), cy: r._py, r: 5.5, "class": "dot" }, svg);
+        var hr = el("rect", { x: 0, y: r._y, width: W, height: rowH - 2, "class": "hit" }, svg);
+        hit(hr, [["h", g.title], ["v", r.label], ["", "Δ p(c), exact: " + r._vs]]);
+      });
+    });
+  });
+
+  /* ---------- Figure 4: G2 sampled outcomes ---------- */
+  var G2S = {
+    labels: ["No edit", "Neutral note, one ID", "Neutral note, varying IDs", "Faithful note, one ID", "Faithful note, varying IDs",
+             "Empty thought at the end", "Empty thought before every call", "Earlier copies deleted"],
+    copy: { p: [0.791, 0.788, 0.781, 0.803, 0.794, 0.216, 0.818, 0.074],
+            v: [[.92, .05, .03], [.96, .04, .00], [.95, .04, .01], [.92, .08, .00], [.92, .08, .00], [.49, .38, .12], [.86, .03, .11], [.29, .28, .43]] },
+    ret: { p: [0.069, 0.064, 0.063, 0.091, 0.088, 0.072, 0.041, 0.048],
+           v: [[.30, .50, .19], [.24, .51, .24], [.24, .49, .27], [.32, .53, .16], [.33, .53, .14], [.21, .41, .37], [.16, .45, .39], [.19, .36, .45]] }
+  };
+  var SEGS = [["The same call again", "f-copy", "in-copy"], ["Another stale call", "f-stale", "in-stale"], ["Escape", "f-esc", "in-esc"]];
+  var g2sWhich = "copy";
+  var redrawG2s = mount("fig-g2s", function (box, W) {
+    var d = G2S[g2sWhich], rowH = 48, H = d.v.length * rowH + 4;
+    var svg = svgFor(box, W, H);
+    d.v.forEach(function (vals, i) {
+      var y = i * rowH, sum = vals[0] + vals[1] + vals[2];
+      var lab = txt(svg, 0, y + 14, G2S.labels[i], "glab");
+      var pt = txt(svg, W, y + 14, "p(c) " + d.p[i].toFixed(3), "rtxt", "end");
+      if (tlen(lab) + tlen(pt) + 12 > W) pt.textContent = d.p[i].toFixed(2);
+      var x = 0;
+      vals.forEach(function (v, si) {
+        var w = v / sum * W;
+        if (w <= 0) return;
+        var last = si === 2 || vals.slice(si + 1).every(function (z) { return z === 0; });
+        var sx0 = x + (si > 0 ? 1 : 0), sw = w - (si > 0 ? 1 : 0) - (last ? 0 : 1);
+        if (sw > 0) {
+          if (last) el("path", { d: hbar(sx0, y + 22, sw, 18, 4), "class": SEGS[si][1] }, svg);
+          else el("rect", { x: sx0, y: y + 22, width: sw, height: 18, "class": SEGS[si][1] }, svg);
+          if (sw >= 34) txt(svg, sx0 + sw / 2, y + 35, Math.round(v * 100) + "%", SEGS[si][2], "middle");
+          var hr = el("rect", { x: sx0, y: y + 18, width: Math.max(sw, 6), height: 26, "class": "hit" }, svg);
+          hit(hr, [["h", G2S.labels[i] + (g2sWhich === "copy" ? " · copy states" : " · returns")], ["v", SEGS[si][0] + ": " + Math.round(v * 100) + "%"], ["", "exact p(c) " + d.p[i].toFixed(3)]]);
+        }
+        x += w;
+      });
+    });
+  });
+  (function () {
+    var tb = document.getElementById("g2s-table");
+    G2S.labels.forEach(function (l, i) {
+      var tr = document.createElement("tr");
+      [l, G2S.copy.p[i].toFixed(3), G2S.copy.v[i].map(function (z) { return z.toFixed(2); }).join(" / "),
+       G2S.ret.p[i].toFixed(3), G2S.ret.v[i].map(function (z) { return z.toFixed(2); }).join(" / ")].forEach(function (c, ci) {
+        var td = document.createElement("td"); td.textContent = c; if (ci) td.className = "n"; tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    var bc = document.getElementById("seg-copy"), br = document.getElementById("seg-ret");
+    function pick(w) { g2sWhich = w; bc.setAttribute("aria-pressed", w === "copy"); br.setAttribute("aria-pressed", w === "ret"); redrawG2s(); }
+    bc.addEventListener("click", function () { pick("copy"); });
+    br.addEventListener("click", function () { pick("ret"); });
+  })();
+
+  /* ---------- Figure 5: G3 lock-in by run length ---------- */
+  var G3H = {
+    bins: ["1", "2", "3–4", "5–9", "10+"],
+    series: [
+      { name: "Control, T = 0.2", cls: "ctrl", v: [0.025, 0.672, 0.913, 0.956, 0.954], n: [5451, 134, 172, 338, 1237] },
+      { name: "Control, T = 1", cls: "t1", v: [0.016, 0.505, 0.671, 0.912, 0.930], n: [6359, 97, 82, 91, 200] },
+      { name: "Always-block, T = 0.2", cls: "block", v: [0.050, 0.675, 0.794, 0.901, 0.918], n: [2408, 120, 141, 203, 368] }
+    ]
+  };
+  mount("fig-g3h", function (box, W) {
+    var H = 300, ml = 38, mr = 10, mt = 14, mb = 44, pw = W - ml - mr, ph = H - mt - mb, nb = G3H.bins.length;
+    var svg = svgFor(box, W, H);
+    var sx = function (i) { return ml + pw * (i + 0.5) / nb; }, sy = function (v) { return mt + ph * (1 - v); };
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      el("line", { x1: ml, x2: W - mr, y1: sy(t), y2: sy(t), "class": t === 0 ? "base" : "grid" }, svg);
+      txt(svg, ml - 8, sy(t) + 4, pct(t), "tick", "end");
+    });
+    G3H.bins.forEach(function (b, i) { txt(svg, sx(i), H - mb + 18, b, "tick", "middle"); });
+    txt(svg, ml + pw / 2, H - 6, "identical calls in a row so far", "gsub", "middle");
+    var xh = el("line", { x1: 0, x2: 0, y1: mt, y2: mt + ph, "class": "xhair", visibility: "hidden" }, svg);
+    G3H.series.forEach(function (s) {
+      var dstr = s.v.map(function (v, i) { return (i ? "L" : "M") + sx(i) + "," + sy(v); }).join("");
+      el("path", { d: dstr, "class": "ln l-" + s.cls }, svg);
+    });
+    G3H.series.forEach(function (s) {
+      s.v.forEach(function (v, i) { el("circle", { cx: sx(i), cy: sy(v), r: 4.5, "class": "mk f-" + s.cls }, svg); });
+    });
+    G3H.bins.forEach(function (b, i) {
+      var hr = el("rect", { x: ml + pw * i / nb, y: mt, width: pw / nb, height: ph, "class": "hit" }, svg);
+      var lines = [["h", "After " + b + " identical call" + (b === "1" ? "" : "s")]].concat(G3H.series.map(function (s) {
+        return ["v", s.name + ": " + pct(s.v[i], 1) + "  (" + s.n[i].toLocaleString("en-US") + " steps)"];
+      }));
+      hit(hr, lines);
+      hr.addEventListener("pointerenter", function () { xh.setAttribute("x1", sx(i)); xh.setAttribute("x2", sx(i)); xh.setAttribute("visibility", "visible"); });
+      hr.addEventListener("focus", function () { xh.setAttribute("x1", sx(i)); xh.setAttribute("x2", sx(i)); xh.setAttribute("visibility", "visible"); });
+      hr.addEventListener("pointerleave", function () { xh.setAttribute("visibility", "hidden"); });
+      hr.addEventListener("blur", function () { xh.setAttribute("visibility", "hidden"); });
+    });
+  });
+  (function () {
+    var tb = document.getElementById("g3h-table");
+    G3H.bins.forEach(function (b, i) {
+      var tr = document.createElement("tr");
+      [b].concat(G3H.series.map(function (s) { return s.v[i].toFixed(3) + " (" + s.n[i].toLocaleString("en-US") + ")"; })).forEach(function (c, ci) {
+        var td = document.createElement("td"); td.textContent = c; if (ci) td.className = "n"; tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+  })();
+
+  /* ---------- Figure 6: small multiples ---------- */
+  var ARMS = [["T = 0.2", "f-ctrl", "Control, T = 0.2"], ["T = 1", "f-t1", "Control, T = 1"], ["Block", "f-block", "Always-block, T = 0.2"]];
+  var MULT = {
+    "fig-m1": { v: [0.386, 0.204, 0.402], n: ["3,080 of 7,979 calls", "1,558 of 7,623 calls", "1,421 of 3,536 calls"], name: "Stale calls" },
+    "fig-m2": { v: [0.248, 0.092, 0.266], n: ["54 of 218 task runs", "20 of 218 task runs", "29 of 109 task runs"], name: "Loop tasks" },
+    "fig-m3": { v: [0.330, 0.326, 0.349], n: ["72 of 218 task runs", "71 of 218 task runs", "38 of 109 task runs"], name: "Resolved" }
+  };
+  Object.keys(MULT).forEach(function (id) {
+    var m = MULT[id];
+    mount(id, function (box, W) {
+      var H = 190, ml = 34, mt = 18, mb = 24, pw = W - ml, ph = H - mt - mb, top = 0.5;
+      var svg = svgFor(box, W, H);
+      var sy = function (v) { return mt + ph * (1 - v / top); };
+      [0, 0.25, 0.5].forEach(function (t) {
+        el("line", { x1: ml, x2: W, y1: sy(t), y2: sy(t), "class": t === 0 ? "base" : "grid" }, svg);
+        txt(svg, ml - 6, sy(t) + 4, pct(t), "tick", "end");
+      });
+      var gw = pw / 3, bw = Math.min(24, gw * 0.5);
+      m.v.forEach(function (v, i) {
+        var cx = ml + gw * i + gw / 2, h = ph * v / top;
+        el("path", { d: col(cx - bw / 2, sy(0) - h, bw, h, 4), "class": ARMS[i][1] }, svg);
+        txt(svg, cx, sy(0) - h - 5, pct(v, 1), "val sm", "middle");
+        txt(svg, cx, H - 6, ARMS[i][0], "tick", "middle");
+        var hr = el("rect", { x: cx - gw / 2 + 2, y: mt, width: gw - 4, height: ph, "class": "hit" }, svg);
+        hit(hr, [["h", m.name], ["v", ARMS[i][2] + ": " + pct(v, 1)], ["", m.n[i]]]);
+      });
+    });
+  });
+
+  /* ---------- Figure 7: run endings ---------- */
+  (function () {
+    var w = document.getElementById("waffle"), parts = [["w", 43], ["c", 14], ["e", 1]];
+    parts.forEach(function (p) { for (var i = 0; i < p[1]; i++) { var s = document.createElement("i"); s.className = p[0]; w.appendChild(s); } });
+  })();
+
+  /* ---------- Examples 7 and 8: call strips ---------- */
+  var STRIPS = {"13920_ctrl":{"run":"ctrl1","task":"fastapi_13920","resolved":false,"calls":[{"k":"n","t":"search_similar_code \"is_typealiastype\"","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"TypeAliasType\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"TypeAlias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"ls -R fastapi/_compat","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"field_annotation_is_complex\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"typing_extensions\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"TypeAliasType\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_typealias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"field_annotation_is_complex\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py (from line 151)","o":"ok","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"m","t":"edit_file fastapi/_compat/shared.py","o":"malformed call","w":0,"z":0,"e":0},{"k":"m","t":"edit_file fastapi/_compat/shared.py","o":"malformed call","w":0,"z":0,"e":0},{"k":"m","t":"edit_file fastapi/_compat/shared.py","o":"malformed call","w":0,"z":0,"e":0},{"k":"n","t":"submit_patch","o":"ok","w":0,"z":0,"e":0}]},"13920_block":{"run":"block1","task":"fastapi_13920","resolved":false,"calls":[{"k":"n","t":"search_similar_code \"is_typealiastype\"","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"TypeAliasType\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"TypeAlias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"ls -R fastapi/_compat","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"TypeAliasType\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_typealias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"lenient_issubclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py (from line 151)","o":"ok","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_dataclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"lenient_issubclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"lenient_issubclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"lenient_issubclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"lenient_issubclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"lenient_issubclass\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"r","t":"read_file fastapi/_compat/shared.py","o":"ok","w":0,"z":1,"e":0},{"k":"r","t":"grep -r \"TypeAliasType\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(hasattr(typing, 'TypeAliasType'))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py (from line 151)","o":"ok","w":0,"z":0,"e":0},{"k":"r","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"c","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"c","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"c","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"c","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"c","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":1,"z":0,"e":0},{"k":"c","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":1,"z":0,"e":0},{"k":"n","t":"edit_file fastapi/_compat/shared.py","o":"ok","w":1,"z":0,"e":1},{"k":"n","t":"edit_file fastapi/_compat/shared.py","o":"ok","w":1,"z":0,"e":1},{"k":"n","t":"submit_patch","o":"ok","w":0,"z":0,"e":0}]},"13920_t1":{"run":"t1_1","task":"fastapi_13920","resolved":false,"calls":[{"k":"n","t":"grep -r \"TypeAliasType\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"search_similar_code \"is_typealiastype\"","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"search_similar_code \"typing_inspection\"","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"type_alias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"ls -R fastapi/_compat","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_typealiastype\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"PEP695\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"search_similar_code \"field_annotation_is_complex\"","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"field_annotation_is_complex\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias.py ⏎ import sys ⏎ from typing import TypeAlias ⏎  ⏎ try: ⏎     # This is PEP 695 syntax…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 --version","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias.py ⏎ import sys ⏎ import types ⏎ print(f\"Python version: {sys.version}\") ⏎ print(f\"type…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import types; print(dir(types))\" | grep \"TypeAlias\"","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"curl -s https://raw.githubusercontent.com/pydantic/typing-inspection/main/typing_inspection/utils.py","o":"exit 6, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"is_typealias\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"typing_extensions\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias.py ⏎ import sys ⏎ import types ⏎ print(f\"Python version: {sys.version}\") ⏎ try: ⏎     #…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import types; print(types.__file__)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import types; print(hasattr(types, 'TypeAliasType'))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(hasattr(typing, 'TypeAliasType'))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(typing.TypeAliasType)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"from typing import TypeAliasType; x = TypeAliasType('x', int); print(x)\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias.py ⏎ import typing ⏎ try: ⏎     # PEP 695 syntax: type MyAlias = int ⏎     # In Python …","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -r \"field_annotation_is_complex\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/_compat/shared.py (from line 94)","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias_complex.py ⏎ import typing ⏎ from fastapi._compat.shared import field_annotation_is_com…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias_complex.py ⏎ import typing ⏎ from fastapi._compat.shared import field_annotation_is_com…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(typing.get_origin(typing.TypeAliasType('A', int)))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; alias = typing.TypeAliasType('A', int); print(getattr(alias, '__value__', 'no value'))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; alias = typing.TypeAliasType('A', list[int]); print(getattr(alias, '__value__', 'no value'))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(type(typing.TypeAliasType('A', int)))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > is_typealiastype.py ⏎ import typing ⏎ import sys ⏎  ⏎ def is_typealiastype(annotation: typing.Any) -> boo…","o":"exit 0, no output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(dir(typing.TypeAliasType))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias_complex.py ⏎ import typing ⏎ from fastapi._compat.shared import field_annotation_is_com…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(typing.get_origin(list[int]))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(typing.get_origin(typing.Any))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"python3 -c \"import typing; print(typing.get_origin(typing.Union[int, str]))\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > verify_type_alias_complex.py ⏎ import typing ⏎ from fastapi._compat.shared import field_annotation_is_com…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat <<EOF > is_typealiastype.py ⏎ import typing ⏎ import sys ⏎  ⏎ def is_typealiastype(annotation: typing.Any) -> boo…","o":"exit 0, no output","w":0,"z":0,"e":0},{"k":"r","t":"read_file fastapi/_compat/shared.py","o":"ok","w":0,"z":0,"e":0},{"k":"r","t":"cat <<EOF > is_typealiastype.py ⏎ import typing ⏎ import sys ⏎  ⏎ def is_typealiastype(annotation: typing.Any) -> boo…","o":"exit 0, no output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"field_annotation_is_complex\" fastapi/","o":"exit 0, output","w":0,"z":1,"e":0},{"k":"n","t":"edit_file fastapi/_compat/shared.py","o":"ok","w":0,"z":0,"e":1},{"k":"n","t":"edit_file fastapi/_compat/shared.py","o":"ok","w":0,"z":0,"e":1},{"k":"n","t":"find tests -name \"*shared*\"","o":"exit 0, no output","w":0,"z":0,"e":0},{"k":"n","t":"find tests -name \"*typing*\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"field_annotation_is_complex\" tests/","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"submit_patch","o":"ok","w":0,"z":0,"e":0}]},"14246_t1":{"run":"t1_1","task":"fastapi_14246","resolved":false,"calls":[{"k":"n","t":"grep -r \"separation of schemas\" .","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"find . -name \"*separate_openapi_schemas*\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"cat tests/test_tutorial/test_separate_openapi_schemas","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"n","t":"find tests/test_tutorial/test_separate_openapi_schemas -name \"*.py\"","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"pytest tests/test_tutorial/test_separate_openapi_schemas/test_tutorial001.py tests/test_tutorial/test_separate_openap…","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"ls -R scripts/playwright/separate_openapi_schemas","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"separate_openapi_schemas\" .","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"ls docs_src/separate_openapi_schemas/","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file docs_src/separate_openapi_schemas/tutorial002.py","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"grep -r \"separate_input_output_schemas\" fastapi/","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"read_file fastapi/openapi/utils.py","o":"ok","w":0,"z":0,"e":0},{"k":"n","t":"sed -n '151,558p' fastapi/openapi/utils.py","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"sed -n '300,558p' fastapi/openapi/utils.py","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"sed -n '450,558p' fastapi/openapi/utils.py","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"grep -n \"get_definitions\" fastapi/openapi/utils.py","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"n","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":1,"e":0},{"k":"n","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py || grep -n \"get_definitions\" fastapi/openapi/utils.py","o":"exit 0, output","w":0,"z":0,"e":0},{"k":"r","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":0,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"r","t":"grep -n \"get_definitions\" fastapi/openapi/utils.py","o":"exit 0, output","w":1,"z":0,"e":0},{"k":"r","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"n","t":"grep -n \"def \" fastapi/openapi/utils.py | grep \"get_definitions\"","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"r","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"c","t":"grep -n \"def get_definitions\" fastapi/openapi/utils.py","o":"exit 1, no output","w":1,"z":0,"e":0},{"k":"n","t":"submit_patch","o":"ok","w":0,"z":0,"e":0}]}};
+  var KIND = { n: "New call", r: "Repeat of an earlier call", c: "Copy of the call just before", m: "Malformed call" };
+  Array.prototype.forEach.call(document.querySelectorAll(".strip"), function (box) {
+    var d = STRIPS && STRIPS[box.getAttribute("data-strip")];
+    if (!d) return;
+    var calls = d.calls, N = calls.length, cur = -1, geo = null;
+    function lines(i) {
+      var c = calls[i], extra = [];
+      if (c.z) extra.push("context compacted just before this call");
+      if (c.w) extra.push("budget warning in this result");
+      if (c.e) extra.push("edit applied");
+      var out = [["h", "Call " + i + " · " + KIND[c.k]], ["m", c.t], ["", c.o]];
+      if (extra.length) out.push(["v", extra.join("; ")]);
+      return out;
+    }
+    function at(i) {
+      if (!geo) return;
+      cur = i;
+      geo.ring.setAttribute("x", i * geo.cell - 2); geo.ring.setAttribute("visibility", "visible");
+      var r = geo.svg.getBoundingClientRect();
+      showTip(lines(i), r.left + i * geo.cell + geo.s / 2, r.top + geo.top + geo.s);
+    }
+    mount(box, function (bx, W) {
+      var gap = 2, cell = Math.max(4, Math.min(16, Math.floor((W + gap) / N))), s = cell - gap;
+      var top = 34, H = top + s + 14;
+      var svg = svgFor(bx, W, H);
+      var wi = -1, zs = [];
+      calls.forEach(function (c, i) { if (c.w && wi < 0) wi = i; if (c.z) zs.push(i); });
+      function anchor(x) { return x < 70 ? "start" : x > W - 70 ? "end" : "middle"; }
+      if (wi >= 0) {
+        var xw = wi * cell + s / 2;
+        el("line", { x1: xw, x2: xw, y1: 14, y2: top - 3, "class": "ann" }, svg);
+        txt(svg, xw, 10, "budget warning", "ann-t", anchor(xw));
+      }
+      zs.forEach(function (z) {
+        var xz = z * cell - gap / 2;
+        el("line", { x1: xz, x2: xz, y1: 28, y2: top + s + 2, "class": "ann" }, svg);
+        txt(svg, xz, 24, "compaction", "ann-t", anchor(xz));
+      });
+      calls.forEach(function (c, i) {
+        el("rect", { x: i * cell, y: top, width: s, height: s, rx: Math.min(2, s / 4), "class": "q-" + c.k }, svg);
+        if (c.e) el("circle", { cx: i * cell + s / 2, cy: top + s + 7, r: 2.5, "class": "dot-edit" }, svg);
+      });
+      var ring = el("rect", { x: 0, y: top - 2, width: s + 4, height: s + 4, rx: 3, "class": "qring", visibility: "hidden" }, svg);
+      var hr = el("rect", { x: 0, y: 0, width: Math.max(cell * N, 1), height: H, "class": "hit" }, svg);
+      geo = { svg: svg, cell: cell, s: s, top: top, ring: ring };
+      hr.addEventListener("pointermove", function (e) {
+        var r = svg.getBoundingClientRect(), i = Math.floor((e.clientX - r.left) / cell);
+        if (i < 0 || i >= N) { hideTip(); ring.setAttribute("visibility", "hidden"); return; }
+        cur = i; ring.setAttribute("x", i * cell - 2); ring.setAttribute("visibility", "visible");
+        showTip(lines(i), e.clientX, e.clientY);
+      });
+      hr.addEventListener("pointerleave", function () { hideTip(); ring.setAttribute("visibility", "hidden"); });
+    });
+    box.addEventListener("keydown", function (e) {
+      var k = e.key, i = cur;
+      if (k === "ArrowRight") i = Math.min(N - 1, cur + 1);
+      else if (k === "ArrowLeft") i = Math.max(0, cur < 0 ? 0 : cur - 1);
+      else if (k === "Home") i = 0;
+      else if (k === "End") i = N - 1;
+      else return;
+      e.preventDefault(); at(i);
+    });
+    box.addEventListener("focus", function () { if (cur < 0) at(0); else at(cur); });
+    box.addEventListener("blur", function () { hideTip(); if (geo) geo.ring.setAttribute("visibility", "hidden"); });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,8 @@
-# loops/ablation_G1.md: the dose test (round 2's G1)
+# ablation/ablation_G1.md: the dose test (round 2's G1)
+
+<!-- moved from loops/ on 2026-10-17. File names without a folder below (README.md, loops_reason_10_13.md, dose.py,
+     dose.md, ...) are in ../loops/ or in the work dir; the links point there. The recap of every ablation is
+     ablation_recap_10_17.html. -->
 
 <!-- copied on 2026-10-15 from README.md §3 (G1) and from loops_reason_10_13.md (§1's dose-test block, and G1's notes in
      §2-§4, §7 and §8), as written on 2026-10-13 and 2026-10-14. Both files keep their text; this copy puts G1's
@@ -13,7 +17,7 @@
 
 ## 1. Design (from README.md §3)
 
-[dose.py](dose.py), with [dose.slurm](dose.slurm) and [submit_dose.sh](submit_dose.sh). Ran on Explorer on 2026-10-14.
+[dose.py](../loops/dose.py), with [dose.slurm](../loops/dose.slurm) and [submit_dose.sh](../loops/submit_dose.sh). Ran on Explorer on 2026-10-14.
 
 - **Histories:** up to 60 contexts, each ending just after the first occurrence of an empty read-only search c.
   - "Empty" means nothing on stdout or stderr: exit 1 (grep found nothing), or exit 0 behind a pipe or from find.
@@ -138,4 +142,4 @@ Paired differences in p(c) at the run's sampling, with 95% intervals from 10,000
 - **G3:** G1 predicts lock-in survives T = 1, at a lower level.
 - **A cheap add-on, not built:** score the empty-thought tokens alone. That gives p(c) after a forced thought at each dose, the always-block lever on controlled histories.
 
-Added on 2026-10-15: G2 ran on 2026-10-15; its record is [ablation_G2.md](ablation_G2.md). The references are in [loops_reason_10_13.md](loops_reason_10_13.md) (References) and [literature.md](literature.md) §4.
+Added on 2026-10-15: G2 ran on 2026-10-15; its record is [ablation_G2.md](ablation_G2.md). The references are in [loops_reason_10_13.md](../loops/loops_reason_10_13.md) (References) and [literature.md](../loops/literature.md) §4.

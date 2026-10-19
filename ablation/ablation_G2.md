@@ -1,4 +1,8 @@
-# loops/ablation_G2.md: the feedback factorial (round 2's G2)
+# ablation/ablation_G2.md: the feedback factorial (round 2's G2)
+
+<!-- moved from loops/ on 2026-10-17. File names without a folder below (README.md, loops_reason_10_13.md, feedback.py,
+     loop_report.py, ...) are in ../loops/ or in the work dir; the links point there. The recap of every ablation is
+     ablation_recap_10_17.html. -->
 
 <!-- written 2026-10-15 from $R/paper/loops/fb_baseline_nothink_args_v30_zip (feedback.md, feedback.json, prep.md,
      states.jsonl, score.jsonl, samples.jsonl). The tables of §3 and §4 are feedback.md's. The split into copies and
@@ -194,5 +198,5 @@ Paired contrasts, with 95% intervals over tasks (18 for copies, 21 for returns):
   - Proposed for its slot, not decided: a closed-loop `dedup` arm against v31's `ctrl`, collapsing consecutive identical call/result pairs.
   - It is the strongest one-step lever, and the one that turns copies into escapes.
   - A chat template may be able to carry it, as it carried the always-block; check that first.
-- **G3** is unchanged. Add the copy/return split to [loop_report.py](loop_report.py), and measure cycles by the stale share.
+- **G3** is unchanged. Add the copy/return split to [loop_report.py](../loops/loop_report.py), and measure cycles by the stale share.
 - **A cheap follow-up, not built:** the missing cell of the thought 2 × 2, with the empty thought before every past call but not at the end. If the match reading holds, the model writes the empty thought itself and copies through it.

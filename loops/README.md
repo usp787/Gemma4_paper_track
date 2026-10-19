@@ -1,6 +1,6 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md. -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17.html). -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
@@ -9,7 +9,7 @@
 - An escape is one step ahead: a call that is neither stale nor malformed, not yet a useful one.
 - The always-block template reshapes loops over whole tasks: the stale share falls 5–6 points and runs fragment. Resolution doesn't move: 37 of 109 in both arms.
 - Lock-in is partly self-reinforcement (round 2's G1, 2026-10-14). At fixed histories, identical copies raise the next copy: p(c) is 0.002, 0.098 and 0.434 for 1, 2 and 4 copies, while re-spelled copies of the same search stay near 0.03. But four forced copies give 43%, while in the closed loop a run of three or more gets one more copy 96% of the time. So the observed curve also reflects which histories loop.
-- The results' content doesn't cue the copy (round 2's G2, 2026-10-15). Varying IDs and a faithful "zero matches" note leave p(c) where it was. Deleting the earlier copies (dedup) or ending the context unlike them (the block) cuts it. With the empty thought before every earlier call too, the copy comes back in full, so the block works as a pattern break ([ablation_G2.md](ablation_G2.md)).
+- The results' content doesn't cue the copy (round 2's G2, 2026-10-15). Varying IDs and a faithful "zero matches" note leave p(c) where it was. Deleting the earlier copies (dedup) or ending the context unlike them (the block) cuts it. With the empty thought before every earlier call too, the copy comes back in full, so the block works as a pattern break ([ablation_G2.md](../ablation/ablation_G2.md)).
 - "A stuck agent is a confident agent" stays an interpretation. The replay measures the probability of the recorded call, not calibrated confidence. `v2`'s advisor fits it: the model calls the advisor before edits, and almost never right after a bad call.
 - Why loops happen, with the math, the caveats and the references: [loops_reason_10_13.md](loops_reason_10_13.md).
 
@@ -84,7 +84,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14 and G2 on 2026-10-15. Each section ends with its result; the full records are [ablation_G1.md](ablation_G1.md) and [ablation_G2.md](ablation_G2.md). G3 is drafted and tested locally (2026-10-15), not yet run. Nothing else here is built or queued yet.
+G1 ran on 2026-10-14 and G2 on 2026-10-15. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md) and [ablation_G2.md](../ablation/ablation_G2.md). G3 is drafted and tested locally (2026-10-15), not yet run. Nothing else here is built or queued yet.
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -150,7 +150,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
   - para matching dose: repeating the same search in any form does it, or the added length and failures do.
   - Neither moving p(c): the lock-in curve's rise is selection. Drop the reinforcement wording, and keep the observed persistence.
 
-**Result (2026-10-14):** the first reading holds, at a much smaller size than the closed-loop curve. The table and what it means are in [loops_reason_10_13.md](loops_reason_10_13.md) §1, and in [ablation_G1.md](ablation_G1.md) with the rest of G1's record.
+**Result (2026-10-14):** the first reading holds, at a much smaller size than the closed-loop curve. The table and what it means are in [loops_reason_10_13.md](loops_reason_10_13.md) §1, and in [ablation_G1.md](../ablation/ablation_G1.md) with the rest of G1's record.
 - **The run:** jobs 11065759–62 at `6c16369`, all exit 0. Wheelhouse 31 (vLLM 0.19.1, transformers 5.13.1), one A100-SXM4-80GB.
   - prep took 2 min; every template check passed.
   - The first GPU job took 1 h 05: score 58 min, sample 6 min. The second found nothing left to do.
@@ -228,7 +228,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
   - Nothing reliable: narrow the claim rather than sweep wordings.
   - placebo − orig shows what the added tokens do by themselves; both − dedup, how close the best rendering gets to deleting the copies.
 
-**Result (2026-10-15):** nothing reliable on the result side, so the claim narrows. The full record is [ablation_G2.md](ablation_G2.md).
+**Result (2026-10-15):** nothing reliable on the result side, so the claim narrows. The full record is [ablation_G2.md](../ablation/ablation_G2.md).
 - **The run:** jobs 11091741–45 at `ed1b419`; every template check passed. The first GPU job hit its 2-h limit at 1,512 of 1,589 scored requests. The second finished scoring and sampling in 30 min.
 - **The factorial:** in exact p(c), surface is −0.005 (−0.009 to −0.002) and meaning +0.020 (+0.005 to +0.036). The interaction is about 0, and placebo − orig −0.004.
 - **The anchors:** dedup − orig is −0.407 and block − orig −0.317, both exact. think_all brings p(c) back to orig's level (+0.002), so the block works by breaking the match.
@@ -295,7 +295,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 
 ### G4. Conditional: feedback over whole tasks
 
-- **When:** only if G2's semantic rendering has a clear, reproducible effect beyond placebo. It has none (G2, 2026-10-15), so G4 doesn't run as written. [ablation_G2.md](ablation_G2.md) §8 proposes a closed-loop dedup arm for its slot; not decided.
+- **When:** only if G2's semantic rendering has a clear, reproducible effect beyond placebo. It has none (G2, 2026-10-15), so G4 doesn't run as written. [ablation_G2.md](../ablation/ablation_G2.md) §8 proposes a closed-loop dedup arm for its slot; not decided.
 - **How it runs:** the rendering may use only history already observed.
   - The always-block arm's route, a chat template, can carry it if the template can express the rendering.
   - Otherwise it needs a harness change, plus smoke checks before full runs.
@@ -368,8 +368,8 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | [feedback.py](feedback.py) | Round 2's G2, the feedback factorial: `prep`, `score`, `sample`, `report`. Imports [dose.py](dose.py) and [../gate1/gate1.py](../gate1/gate1.py) |
 | [feedback.slurm](feedback.slurm) | The factorial's steps in one job: CPU for prep and report, one A100 for score and sample |
 | [submit_feedback.sh](submit_feedback.sh) | Queues prep → 3 GPU jobs → report; dry unless `GO=1` |
-| [ablation_G1.md](ablation_G1.md) | G1's record: design, run and result, copied from §3 here and from [loops_reason_10_13.md](loops_reason_10_13.md) |
-| [ablation_G2.md](ablation_G2.md) | G2's record: the run, the result, and the split into copies and returns |
+| [ablation_G1.md](../ablation/ablation_G1.md) | G1's record: design, run and result, copied from §3 here and from [loops_reason_10_13.md](loops_reason_10_13.md) |
+| [ablation_G2.md](../ablation/ablation_G2.md) | G2's record: the run, the result, and the split into copies and returns |
 | [lit_review_prompt.md](lit_review_prompt.md) | The start prompt of the literature-review session |
 
 The forced thought lives in [../gate1/](../gate1/README.md): `gate1.py --context T-open`, the step `open` of `gate1.slurm` and `submit_gate1.sh`.
