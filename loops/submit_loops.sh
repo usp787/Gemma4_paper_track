@@ -13,6 +13,8 @@
 #   GO=1 STEPS=smoke bash loops/submit_loops.sh                    G4's smoke test first (below)
 #   GO=1 STEPS="dedup report" bash loops/submit_loops.sh           G4: pass 1 of dedup, reported against G3's arms
 #   GO=1 PASS=2 STEPS="dedup report" bash loops/submit_loops.sh    G4's pass 2
+#   GO=1 STEPS="modelzip ctrl_12b report" bash loops/submit_loops.sh          the 12B control: its zip, then pass 1
+#   GO=1 PASS=2 STEPS="modelzip ctrl_12b report" bash loops/submit_loops.sh   its pass 2 (modelzip only checks the zip)
 # G4's smoke test (STEPS=smoke): one A100 job, the dedup arm on the 4 tasks of loops/g4_smoke_ids.txt (each loops on one
 # well-formed call with the same result in every T = 0.2 control run), into loops_dedup_smoke_<v>_a100, with no report.
 # It shows, for ~0.5 A100-hour, that the proxy collapses the harness's real requests; the command it prints checks that.
@@ -22,30 +24,32 @@
 #        checks on probe conversations;
 #      - t1zip: make_t1_zip.py derives the T = 1 zip from the pinned one (only the temperature line of
 #        configs/sampling.yaml differs), or checks it if it exists; then the main track's
-#        slurm/package_submission.slurm validates it with the host's compiler (ZIPCHECK=0 skips that).
+#        slurm/package_submission.slurm validates it with the host's compiler (ZIPCHECK=0 skips that);
+#      - modelzip: make_model_zip.py derives the 12B control's zip from the pinned one (only its two `model:` lines
+#        differ), or checks it if it exists; then package_submission.slurm validates it, as for t1zip.
 #      A failed check cancels every job after it, in every arm.
 #   2. the arms (one A100 80 GB each): the zip of loops/arms.tsv, PINS=1, unpaced, LANES tasks at once; block with
-#      CHAT_TEMPLATE set, dedup with DEDUP=DEDUP_RUN (every other arm DEDUP=0). Each arm is a chain of JOBS jobs: a later
-#      one finishes what an earlier one left, or exits before starting vLLM. WIDTH arms run side by side (default: all
-#      of them). Expect ~1.5 h per arm.
+#      CHAT_TEMPLATE set, dedup with DEDUP=DEDUP_RUN (every other arm DEDUP=0); ctrl_12b with the 12B zip, which makes
+#      eval_gpu.slurm serve the 12B. Each arm is a chain of JOBS jobs: a later one finishes what an earlier one left,
+#      or exits before starting vLLM. WIDTH arms run side by side (default: all of them). Expect ~1.5 h per arm.
 #   3. report (CPU, minutes): baseline_report.py with loops/arms.tsv, for the dev and the rich tasks, then
 #      loop_report.py on every pass of every arm (passes 1 to PASS, and any later pass that already exists), pooled per
 #      arm and compared in pairs (block and ctrl_t1 against ctrl; dedup, when it is queued or has run, against ctrl and
-#      block), with round 1's runs on wheelhouse OLD as a replicate, into $R/paper/loops/report_[g4_]p<pass>_<time>/
-#      (g4_ when dedup is queued).
+#      block; ctrl_12b, likewise, against ctrl), with round 1's runs on wheelhouse OLD as a replicate, into
+#      $R/paper/loops/report_[g4_|12b_]p<pass>_<time>/ (g4_ when dedup is queued, 12b_ when ctrl_12b is).
 # The gpu partition lets one user have 8 jobs queued and 4 running (QoS gpu, 2026-10-15). One pass of three arms is
 # 3 x JOBS = 6 GPU jobs, so queue the passes one at a time.
 # Env:
 #   PASS=k     1 (default): the arms' first runs; k > 1: their _r<k> runs, another pass of every arm
-#   STEPS      any of "template t1zip ctrl block ctrl_t1 dedup smoke report" (default: G3's six, without dedup and smoke)
+#   STEPS      any of "template t1zip modelzip ctrl block ctrl_t1 dedup ctrl_12b smoke report" (default: G3's six)
 #   DEDUP_RUN  the dedup arm's DEDUP: the run length the proxy starts collapsing at (default 2: no copy is ever seen)
 #   WIDTH=n    arms side by side (default: all queued); SERIAL=1 means WIDTH=1: one A100 at a time, ~4.5 h a pass
 #   TIME (02:00:00), JOBS (2 per arm), LANES (4), GPU (a100), PARTITION (gpu), CONSTRAINT (a100@80g; empty for none)
 #   SMOKE_TIME (00:45:00): the smoke job's limit
-#   ZIPCHECK=0 skip the host compiler's check of the T = 1 zip; OLD (v30): round 1's wheelhouse tag, empty for none
+#   ZIPCHECK=0 skip the host compiler's check of the derived zips; OLD (v30): round 1's wheelhouse tag, empty for none
 #   AFTER=<job id>  hold the chain until that job has ended
-#   MAIN       the main-track checkout (default ~/Gemma4_kaggle_repo); its eval_gpu.slurm must know CHAT_TEMPLATE, and
-#              for dedup DEDUP, with a token_proxy.py that has --dedup
+#   MAIN       the main-track checkout (default ~/Gemma4_kaggle_repo); its eval_gpu.slurm must know CHAT_TEMPLATE, for
+#              dedup DEDUP, with a token_proxy.py that has --dedup, and for ctrl_12b how to serve the 12B
 #   FORCE=1    queue even though loops jobs of ours are queued or running
 #   For tests: GEMMA4_ROOT=<dir> replaces /scratch/$USER/gemma4, and KAGGLE_WH=<n> fakes Kaggle's wheelhouse version.
 set -euo pipefail
@@ -72,8 +76,10 @@ IDS_RICH=$R/train/rich_sound_ids.txt   # the 39 rich tasks of v30's grader check
 TASKS=$OUT/tasks_dev70_rich39.txt
 SMOKE_IDS=$(pwd)/loops/g4_smoke_ids.txt
 SMOKE_RUN=loops_dedup_smoke_${V}_a100
-ALL_ARMS=(ctrl block ctrl_t1 dedup)
-tag=; has dedup && tag=g4_   # the report dir's prefix
+M31=gemma-4-31b-it-qat-w4a16-ct; M12=gemma-4-12b-it-qat-w4a16-ct   # the pinned zip's model, and the 12B control's
+ALL_ARMS=(ctrl block ctrl_t1 dedup ctrl_12b)
+LATE_ARMS=" dedup ctrl_12b "   # reported only once queued or run, so the earlier reports stay as they were
+tag=; has dedup && tag=g4_; has ctrl_12b && tag=12b_   # the report dir's prefix
 kaggle_version() {   # Kaggle's wheelhouse version, as baseline/opsd_baselines.sh reads it; "" if unknown
   if [ -n "${KAGGLE_WH:-}" ]; then echo "$KAGGLE_WH"; return 0; fi
   curl -s -m 15 https://www.kaggle.com/api/v1/datasets/view/metric/gemma-4-developer-agent-wheelhouse 2>/dev/null \
@@ -90,8 +96,8 @@ run_of() {   # run_of <arm> <pass> [<version tag>]: the arm's run for that pass,
 blocked=()
 [[ $PASS =~ ^[1-9][0-9]*$ ]] || { echo "FAIL: PASS=$PASS is not a pass number"; exit 1; }
 for s in $STEPS; do
-  case $s in template|t1zip|ctrl|block|ctrl_t1|dedup|smoke|report) ;;
-    *) echo "FAIL: unknown step '$s' (template t1zip ctrl block ctrl_t1 dedup smoke report)"; exit 1 ;; esac
+  case $s in template|t1zip|modelzip|ctrl|block|ctrl_t1|dedup|ctrl_12b|smoke|report) ;;
+    *) echo "FAIL: unknown step '$s' (template t1zip modelzip ctrl block ctrl_t1 dedup ctrl_12b smoke report)"; exit 1 ;; esac
 done
 [[ $DEDUP_RUN =~ ^[1-9][0-9]*$ ]] && [ "$DEDUP_RUN" -ge 2 ] || { echo "FAIL: DEDUP_RUN=$DEDUP_RUN is not a run length of 2 or more"; exit 1; }
 ARMS=(); for a in "${ALL_ARMS[@]}"; do has "$a" && ARMS+=("$a"); done
@@ -101,16 +107,25 @@ WIDTH=${WIDTH:-$n_arms}
 [[ $WIDTH =~ ^[1-9][0-9]*$ ]] || { echo "FAIL: WIDTH=$WIDTH is not a number of arms"; exit 1; }
 for a in "${ALL_ARMS[@]}"; do [ -n "$(field "$a" 3)" ] || { echo "FAIL: loops/arms.tsv has no arm $a"; exit 1; }; done
 ZIP_C=$R/submissions/$(field ctrl 3); ZIP_B=$R/submissions/$(field block 3); ZIP_T=$R/submissions/$(field ctrl_t1 3)
-ZIP_D=$R/submissions/$(field dedup 3)
+ZIP_D=$R/submissions/$(field dedup 3); ZIP_M=$R/submissions/$(field ctrl_12b 3)
 [ -f "$ZIP_C" ] || blocked+=("no zip $ZIP_C")
 [ "$ZIP_B" = "$ZIP_C" ] || blocked+=("loops/arms.tsv gives block another zip than ctrl; the two must differ only in the template")
 [ "$ZIP_D" = "$ZIP_C" ] || blocked+=("loops/arms.tsv gives dedup another zip than ctrl; the two must differ only in the proxy's edit")
 [ "$ZIP_T" = "${ZIP_C%.zip}_t1.zip" ] || blocked+=("loops/arms.tsv's ctrl_t1 zip should be ctrl's with _t1, the one make_t1_zip.py derives")
+[ "$ZIP_M" = "${ZIP_C%.zip}_12b.zip" ] || blocked+=("loops/arms.tsv's ctrl_12b zip should be ctrl's with _12b, the one make_model_zip.py derives")
 if has ctrl_t1 && ! has t1zip && [ ! -s "$ZIP_T" ]; then blocked+=("no $ZIP_T yet: add t1zip to STEPS"); fi
-if has t1zip && [ "$ZIPCHECK" = 1 ] && [ ! -f "$MAIN/slurm/package_submission.slurm" ]; then
-  blocked+=("no $MAIN/slurm/package_submission.slurm to validate the T=1 zip (or ZIPCHECK=0)")
+if has ctrl_12b && ! has modelzip && [ ! -s "$ZIP_M" ]; then blocked+=("no $ZIP_M yet: add modelzip to STEPS"); fi
+if { has t1zip || has modelzip; } && [ "$ZIPCHECK" = 1 ] && [ ! -f "$MAIN/slurm/package_submission.slurm" ]; then
+  blocked+=("no $MAIN/slurm/package_submission.slurm to validate the derived zips (or ZIPCHECK=0)")
 fi
-[ -s "$R/models/gemma-4-31b-it-qat-w4a16-ct/model.safetensors" ] || blocked+=("the model is missing: (cd $MAIN && sbatch slurm/fetch_model.slurm)")
+if has template || has ctrl || has block || has ctrl_t1 || has dedup || has smoke; then   # every step on the 31B
+  [ -s "$R/models/$M31/model.safetensors" ] || blocked+=("the model is missing: (cd $MAIN && sbatch slurm/fetch_model.slurm)")
+fi
+if has ctrl_12b; then
+  [ -s "$R/models/$M12/model.safetensors" ] || blocked+=("the 12B is missing: (cd $MAIN && sbatch slurm/fetch_model.slurm $M12)")
+  grep -q "$M12" "$MAIN/baseline/eval_gpu.slurm" 2>/dev/null \
+    || blocked+=("$MAIN/baseline/eval_gpu.slurm doesn't serve the 12B yet: git pull in $MAIN")
+fi
 [ -x "$R/venvs/vllm_host/bin/python" ] || blocked+=("no venv $R/venvs/vllm_host")
 [ "$(lines "$IDS_DEV")" = 70 ] || blocked+=("$IDS_DEV should hold the 70 dev-sound ids")
 [ "$(lines "$IDS_RICH")" = 39 ] || blocked+=("$IDS_RICH should hold the 39 rich-sound ids")
@@ -142,12 +157,13 @@ if [ -n "$LIMIT" ] && [ $((HAVE + n_gpu)) -gt "$LIMIT" ]; then
 fi
 
 echo "loop study, pass $PASS on $V: $(for a in "${ARMS[@]}"; do printf '%s -> %s; ' "$a" "$(run_of "$a" "$PASS")"; done)width $WIDTH"
-echo "  zips $(basename "$ZIP_C") and $(basename "$ZIP_T"); $(lines "$IDS_DEV") dev + $(lines "$IDS_RICH") rich tasks; template $TPL; steps: $STEPS"
+echo "  zips $(basename "$ZIP_C"), $(basename "$ZIP_T") and $(basename "$ZIP_M"); $(lines "$IDS_DEV") dev + $(lines "$IDS_RICH") rich tasks; template $TPL; steps: $STEPS"
 for a in "${ARMS[@]}"; do
   r=$(run_of "$a" "$PASS")
   if [ -d "$R/results/$r" ]; then echo "  note: $R/results/$r exists, so $a resumes it (finished tasks are skipped)"; fi
 done
 if has t1zip && [ -s "$ZIP_T" ]; then echo "  note: $ZIP_T exists, so t1zip only checks it"; fi
+if has modelzip && [ -s "$ZIP_M" ]; then echo "  note: $ZIP_M exists, so modelzip only checks it"; fi
 if [ ${#blocked[@]} -gt 0 ] && [ "$GO" = 1 ]; then
   printf 'blocked: %s\n' "${blocked[@]}"
   echo "FAIL: nothing queued"
@@ -202,6 +218,19 @@ if has t1zip; then
     PREP+=("$ZJ")
   fi
 fi
+if has modelzip; then
+  # shellcheck disable=SC2046
+  submit modelzip "$(pwd)" STEP=modelzip SRC="$ZIP_C" OUT="$ZIP_M" MODEL_ID="$M12" REPORT="$OUT/12b_zip.check.md" -- \
+    -J loops_modelzip -p short -c 2 --mem=8G -t 00:20:00 "${LOG_ARGS[@]}" $(dep "afterany:${AFTER:-}") loops/loops.slurm
+  MJ=$J
+  if [ "$ZIPCHECK" = 1 ]; then   # as for the T = 1 zip: the host's compiler on the zip as it is
+    submit "modelzip check" "$MAIN" -- --dependency="afterok:$MJ,singleton" --kill-on-invalid-dep=yes \
+      slurm/package_submission.slurm "$ZIP_M"
+    PREP+=("$J")
+  else
+    PREP+=("$MJ")
+  fi
+fi
 prep_deps() {   # the dependency strings on every check job, or on AFTER when there is none
   local d=() j
   for j in "${PREP[@]}"; do d+=("afterok:$j"); done
@@ -249,8 +278,8 @@ fi
 if has report; then
   specs=(); runs_now=()
   for a in "${ALL_ARMS[@]}"; do
-    # G4's arm only once it is queued or has run, so G3's reports stay as they were
-    if [ "$a" = dedup ] && ! has dedup && [ ! -d "$R/results/$(run_of dedup 1)" ]; then continue; fi
+    # G4's arm and the 12B control only once queued or run, so the earlier reports stay as they were
+    if [[ $LATE_ARMS == *" $a "* ]] && ! has "$a" && [ ! -d "$R/results/$(run_of "$a" 1)" ]; then continue; fi
     dirs=()
     for k in $(seq 1 "$PASS"); do dirs+=("$R/results/$(run_of "$a" "$k")"); done
     k=$((PASS + 1))   # later passes that already exist: G4's pass 1 is reported against both of G3's control passes
@@ -259,6 +288,7 @@ if has report; then
   done
   pairs=(block:ctrl ctrl_t1:ctrl)
   [[ " ${specs[*]} " == *" dedup="* ]] && pairs+=(dedup:ctrl dedup:block)
+  [[ " ${specs[*]} " == *" ctrl_12b="* ]] && pairs+=(ctrl_12b:ctrl)
   if [ -n "$OLD" ] && [ "$OLD" != "$V" ]; then   # round 1's runs, as a replicate: only those that exist
     for a in ctrl block; do
       first=$R/results/$(run_of "$a" 1 "$OLD")

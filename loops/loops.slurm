@@ -8,6 +8,9 @@
 #                  (OUT, the template file). A failed check fails the job, which cancels the runs after it.
 #   STEP=t1zip     make_t1_zip.py: G3's T = 1 zip from the pinned one (SRC, the pinned zip; OUT, the T = 1 zip;
 #                  REPORT, its check.md). Built if missing, else only checked. A failed check fails the job.
+#   STEP=modelzip  make_model_zip.py: the 12B control's zip from the pinned one (SRC, the pinned zip; OUT, the new zip;
+#                  MODEL_ID, the model it declares; REPORT, its check.md). Built if missing, else only checked. A failed
+#                  check fails the job.
 #   STEP=report    baseline/baseline_report.py with loops/arms.tsv, for the dev and the rich tasks, then
 #                  loop_report.py on every run (RUNS, space-separated run dirs, ctrl's first), into DIR. With ARMSPEC
 #                  (space-separated NAME=RUN[,RUN...]) and PAIRS (space-separated A:B), loop_report.py also pools each
@@ -28,6 +31,10 @@ case ${STEP:-} in
     LD_PRELOAD=$PRELOAD "$PY" loops/make_t1_zip.py --src "${SRC:?set SRC to the pinned zip}" \
       --out "${OUT:?set OUT to the T=1 zip}" --temperature "${TEMP:-1.0}" ${REPORT:+--report "$REPORT"} \
       || { echo "FAIL: t1zip"; exit 1; } ;;
+  modelzip)
+    LD_PRELOAD=$PRELOAD "$PY" loops/make_model_zip.py --src "${SRC:?set SRC to the pinned zip}" \
+      --out "${OUT:?set OUT to the new zip}" --model "${MODEL_ID:?set MODEL_ID to the model the zip declares}" \
+      ${REPORT:+--report "$REPORT"} || { echo "FAIL: modelzip"; exit 1; } ;;
   report)
     DIR=${DIR:?set DIR to the report dir}
     mkdir -p "$DIR"
@@ -46,6 +53,6 @@ case ${STEP:-} in
       --group "rich=$IDS_RICH" --json "$DIR/loops.json" > "$DIR/loops.md" || { echo "FAIL: loop_report.py"; exit 1; }
     cat "$DIR/baseline_dev.md" "$DIR/baseline_rich.md" "$DIR/loops.md"
     echo "report: $DIR/{baseline_dev,baseline_rich,loops}.md" ;;
-  *) echo "FAIL: STEP=${STEP:-} (template, t1zip or report)"; exit 1 ;;
+  *) echo "FAIL: STEP=${STEP:-} (template, t1zip, modelzip or report)"; exit 1 ;;
 esac
 echo "end=$(date -Is)"

@@ -27,8 +27,8 @@ with arm B task by task. Then the report adds, per group and over all tasks:
 - per pair, A − B for each metric, with a 95% interval from resampling tasks (--reps, --seed). Each resampled task
   brings all of its runs in both arms, so the passes stay paired with their task;
 - per arm with 2 or more runs, run 2 − run 1 the same way: how much one pass varies;
-- every run's provenance: wheelhouse, harness, vLLM build, zip, chat template, the proxy's dedup, sampling, PINS, pace,
-  budget, GPU;
+- every run's provenance: wheelhouse, the model (31b, or 12b for the 12B control), harness, vLLM build, zip, chat
+  template, the proxy's dedup, sampling, PINS, pace, budget, GPU;
 - lock-in by run length (G3's split, and G4's readout): P(one more identical call | the last k calls identical, the
   last one well formed) for k = 1, 2, 3-4, 5-9, 10+, on all steps and on clean steps (no budget warning in the last
   result, no compaction before the next call), pooled per arm and paired per pair on all steps;
@@ -106,6 +106,7 @@ def load_run(run: Path) -> dict:
 
 
 SAMPLING_KEYS = re.compile(r"^(temperature|top_p|top_k):[ \t]*([0-9.]+)", re.M)
+MODEL_LINE = re.compile(r"^[ \t]*model:[ \t]*([A-Za-z0-9_./-]+)[ \t]*$", re.M)
 
 
 def provenance(run: Path, template: str) -> dict:
@@ -122,7 +123,12 @@ def provenance(run: Path, template: str) -> dict:
     budget = meta.get("budget") or {}
     # eval_gpu.slurm's DEDUP (G4): run_meta.json since it exists, else the run dir's marker; runs from before it had none
     dedup = meta.get("proxy_dedup") or ((run / ".dedup").read_text().strip() if (run / ".dedup").is_file() else "none")
-    return {"wheelhouse": meta.get("wheelhouse_version") or "-", "harness": short(meta.get("harness_sig")),
+    # the model the agent declares, which eval_gpu.slurm serves: run_meta.json's (run_eval.py), else the `model:` lines of
+    # the agent dirs, for runs from before run_meta.json had it; e.g. gemma-4-12b-it-qat-w4a16-ct -> 12b
+    models = meta.get("models") or sorted({m for f in run.glob("agent_j*/**/*.yaml")
+                                           for m in MODEL_LINE.findall(f.read_text(encoding="utf-8"))})
+    model = ", ".join(sorted({re.sub(r"^gemma-4-|-it-qat-w4a16-ct$", "", m.rsplit("/", 1)[-1]) for m in models})) or "-"
+    return {"wheelhouse": meta.get("wheelhouse_version") or "-", "model": model, "harness": short(meta.get("harness_sig")),
             "vllm": short(meta.get("host_vllm_sha")), "zip": short(meta.get("agent_zip_sha256")), "template": template,
             "dedup": dedup, "sampling": " | ".join(sorted(samplings)) or "-", "pins": meta.get("pins", "-"), "pace": meta.get("pace") or "-",
             "budget": (f"{budget.get('max_time_minutes')} min, {budget.get('max_tool_calls')} calls, "
@@ -537,13 +543,13 @@ def report_proxy(arms: dict[str, list[dict]], ids: set) -> dict:
 
 def print_provenance(runs: list[dict]) -> None:
     print("## Provenance\n")
-    print("| run | wheelhouse | harness | vLLM build | zip sha256 | chat template | dedup | sampling | PINS | pace | budget "
-          "| GPU |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("| run | wheelhouse | model | harness | vLLM build | zip sha256 | chat template | dedup | sampling | PINS | pace "
+          "| budget | GPU |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in runs:
         p = r["prov"]
         samp = p["sampling"] + ("" if p["agreed"] else " (agent dirs disagree!)")
-        print(f"| {r['name']} | {p['wheelhouse']} | {p['harness']} | {p['vllm']} | {p['zip']} | {p['template']} | "
+        print(f"| {r['name']} | {p['wheelhouse']} | {p['model']} | {p['harness']} | {p['vllm']} | {p['zip']} | {p['template']} | "
               f"{p['dedup']} | {samp} | {p['pins']} | {p['pace']} | {p['budget']} | {p['gpu']} |")
     print("\nSampling is read from the agent dirs the eval jobs extracted (configs/sampling.yaml). Keys the file doesn't "
           "set, such as top_k, come from the model's generation config.\n")

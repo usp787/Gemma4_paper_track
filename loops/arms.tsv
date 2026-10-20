@@ -1,6 +1,7 @@
-# The loop study's closed-loop arms (README.md, experiment 2 and round 2's G3 and G4), in baseline/arms.tsv's format, for
-# baseline/baseline_report.py --arms loops/arms.tsv and loops/submit_loops.sh. Every arm runs off_args's pinned zip,
-# or (ctrl_t1) that zip with its sampling temperature set to 1.0 by make_t1_zip.py. They run on A100s in resume mode,
+# The loop study's closed-loop arms (README.md, experiment 2, round 2's G3 and G4, and the 12B control), in
+# baseline/arms.tsv's format, for baseline/baseline_report.py --arms loops/arms.tsv and loops/submit_loops.sh. Every arm
+# runs off_args's pinned zip, or that zip with its sampling temperature set to 1.0 by make_t1_zip.py (ctrl_t1), or with
+# the model it declares set to the 12B by make_model_zip.py (ctrl_12b). They run on A100s in resume mode,
 # 4 tasks at once on one GPU, unlike the one-task L40S evals of baseline/arms.tsv. So compare these arms with each
 # other, not with those runs. {v} is the wheelhouse version; pass k of an arm is <first_run>_r<k>.
 # arm	agent	zip	first_run	extra_runs	ref	kaggle	about
@@ -8,3 +9,4 @@ ctrl	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f.zip	loops
 block	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f.zip	loops_block_{v}_a100	-	ctrl	-	off_args with the always-block template: the empty thought prefilled after every tool response
 ctrl_t1	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f_t1.zip	loops_ctrl_t1_{v}_a100	-	ctrl	-	ctrl at temperature 1.0 (Google's sampling: top_p 0.95 as ctrl's, top_k 64 from the model): the zip differs only in configs/sampling.yaml
 dedup	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f.zip	loops_dedup_{v}_a100	-	ctrl	-	off_args with the main track's token proxy collapsing every run of identical tool turns (the same calls, the same results) to its first turn in what the model sees (eval_gpu.slurm DEDUP=2): round 2's G4
+ctrl_12b	baseline_nothink_args	baseline_nothink_args_20261010-1852_ebc522f_12b.zip	loops_ctrl_12b_{v}_a100	-	ctrl	-	ctrl on Gemma 4 12B: the zip differs only in its two model lines (make_model_zip.py), so eval_gpu.slurm serves the 12B; the 12B control, a generality check

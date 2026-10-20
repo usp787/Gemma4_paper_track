@@ -188,7 +188,7 @@ From [loops/literature.md](loops/literature.md), which has the checked reference
 
 ## 7. Open
 
-- **A 12B control pass** (generality): the next decision. The harness serves the 12B already; it needs a zip that differs from the pinned one only in its two model lines, and a new arm in `loops/submit_loops.sh`. No 12B thinking-off run exists yet.
+- **The 12B control** (generality): two passes of `ctrl` on Gemma 4 12B, drafted and tested locally on 2026-10-20, not yet run. Its design, predictions and commands are in [loops/README.md](loops/README.md) §3, "The 12B control". No 12B run with thinking off exists yet.
 - **Not planned, as limitations:** a forced-thought closed-loop arm; Gate 1's dedup re-split; G2's missing thought cell; other wordings and temperatures.
 - **Docs not yet synced with G3/G4:**
   - loops_reason_10_13.md's principles table and §3;

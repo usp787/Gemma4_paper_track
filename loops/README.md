@@ -1,6 +1,6 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17_legacy.html). Updated 2026-10-19: G3's result and record (ablation_G3.md); the always-block claim now uses v31's result; G4 drafted as the dedup arm (section 3). Updated 2026-10-20: G4's result and record (ablation_G4.md); G2's record corrected after G4; the experiments frozen and A0 dropped; every round's findings in ../findings.md; loop_illustration.html renamed loop_illustration_legacy.html, and the recap ablation_recap_10_17_legacy.html, both legacy. -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17_legacy.html). Updated 2026-10-19: G3's result and record (ablation_G3.md); the always-block claim now uses v31's result; G4 drafted as the dedup arm (section 3). Updated 2026-10-20: G4's result and record (ablation_G4.md); G2's record corrected after G4; the experiments frozen and A0 dropped; every round's findings in ../findings.md; loop_illustration.html renamed loop_illustration_legacy.html, and the recap ablation_recap_10_17_legacy.html, both legacy. Later on 2026-10-20: the 12B control drafted, two passes of ctrl on Gemma 4 12B (section 3). -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
@@ -85,7 +85,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14, G2 on 2026-10-15, G3 on 2026-10-15/16 and G4, the dedup arm, on 2026-10-19/20. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md), [ablation_G3.md](../ablation/ablation_G3.md) and [ablation_G4.md](../ablation/ablation_G4.md). **The experiments were frozen on 2026-10-20** (the user's call, a week before the planned freeze), and A0 with the bonus was dropped, never built. A 12B control pass is still open as a generality check. Every round's findings are in [../findings.md](../findings.md).
+G1 ran on 2026-10-14, G2 on 2026-10-15, G3 on 2026-10-15/16 and G4, the dedup arm, on 2026-10-19/20. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md), [ablation_G3.md](../ablation/ablation_G3.md) and [ablation_G4.md](../ablation/ablation_G4.md). **The experiments were frozen on 2026-10-20** (the user's call, a week before the planned freeze), and A0 with the bonus was dropped, never built. One arm was added after the freeze, as a generality check: the 12B control, two passes of `ctrl` on Gemma 4 12B, drafted and tested locally on 2026-10-20, not yet run. Every round's findings are in [../findings.md](../findings.md).
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -356,6 +356,69 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 - **What the copies add:** the last escapes inside a run. Under dedup the model ends 47% of its runs of 3+ itself, against 15% (+32, +20 to +45), nearly all of them runs of 3–9. Runs of 10+ per task fall from 0.33 to 0.25 (−0.08, −0.16 to −0.01).
 - **The same tasks loop** as in the control. Inside runs, the model writes its empty thought at 60–84% of steps (`ctrl` 6%), and it doesn't stop the copy.
 
+### The 12B control (drafted 2026-10-20)
+
+[submit_loops.sh](submit_loops.sh) (steps `modelzip` and `ctrl_12b`), with [make_model_zip.py](make_model_zip.py), [loops.slurm](loops.slurm) (`STEP=modelzip`), [arms.tsv](arms.tsv) and [loop_report.py](loop_report.py) (a model column). Nothing changes in the main track: `baseline/eval_gpu.slurm` already serves the 12B, with its `--hf-overrides`, whenever the zip declares it. Tested locally (the last section), not yet run.
+
+**Why:** generality. Every result so far comes from one model, Gemma 4 31B. One closed-loop arm can check the paper's descriptive claims on a second size:
+- lock-in rises with run length;
+- at T = 0.2, long runs end only from outside;
+- loops mark lost runs;
+- the same tasks loop.
+
+Gemma 4 12B is the cheapest second size:
+- its tokenizer is byte-identical to the 31B's;
+- its chat template differs only in 9 lines for image and audio parts, with the same empty-thought prefill when thinking is off;
+- it is already on scratch.
+
+One-step claims would need their own replay states, so G1, G2 and G4 are not repeated (out of scope, below).
+
+| Arm | Zip | Chat template | Proxy | Sampling | Model |
+|---|---|---|---|---|---|
+| `ctrl_12b` | the pinned zip with its two `model:` lines set to the 12B (`…_ebc522f_12b.zip`) | the model's | none (`DEDUP=0`) | T = 0.2, top-p 0.95, as `ctrl` | `gemma-4-12b-it-qat-w4a16-ct` (int4, w4a16) |
+
+- **Against `ctrl`** (two passes on v31), on the same 109 tasks, PINS=1, unpaced, 4 tasks at once on one A100.
+  - The agent, its prompts, tools, sampling and budget (4 min, 60 calls, 100 turns) are `ctrl`'s byte for byte; only the model changes.
+  - The analyzer sub-agent runs on the 12B too, since a submission declares one model for all its agents.
+- **The zip:** [make_model_zip.py](make_model_zip.py) changes every `model:` line of the pinned zip's YAML (`agent.yaml:14`, `sub_agents/code_analyzer.yaml:3`) and checks that nothing else differs.
+  - An existing zip is only checked, as with the T = 1 zip; the main track's `slurm/package_submission.slurm` then validates it with the host's compiler.
+  - Built locally, its sha256 is `b290324c906c`. Explorer's bytes may differ if its zlib compresses differently; `run_meta.json` records the zip each run used.
+- **Two passes, no smoke test** (the user's call, 2026-10-20). Pass 1 is also the first check that the 12B serves this agent with thinking off.
+- **New for the 12B on this stack:**
+  - no 12B run has had thinking off; the main track's `budgetfit_12b` ran thinking on, on L40S;
+  - none has run on an A100 or with 4 lanes;
+  - with thinking on, on an L40S, it decoded about twice as fast as the 31B (65 against 31.5 tokens/s; the main track's `budgetfit_12b_v31_zip` diagnosis).
+- **Predictions, written before the run** (`ctrl_12b` against `ctrl`, passes pooled, all 109 tasks, well-formed calls for the hazards):
+  - **Checks, not findings:**
+    - the provenance is `ctrl`'s except the zip and the model column (`12b`);
+    - every pass has all 109 tasks;
+    - call 1's prompt ends with the empty thought 100% of the time, the template's prefill with thinking off.
+  - **Resolution falls below `ctrl`'s 72 of 218.** With thinking on, the 12B solved about half as many dev tasks as the 31B in the main track (15 and 18 of 70, against 31 and 30).
+  - **Loops are at least as common:** a stale share of 38.6% or more, and 24.8% or more loop tasks. Smaller models loop more in SWE-smith, and loops are reported for every Gemma 4 size ([literature.md](literature.md)).
+  - **The hazard rises with k, and long runs are absorbing:** 0.95 or more on clean steps at k = 5–9 and at 10+.
+  - **Long runs end from outside:** at most 10% of the 12B's well-formed runs of 10+ end on their own (`ctrl`: 1 of 72).
+  - **Loops still mark lost runs:** loop task runs resolve less often than other task runs.
+  - **The same tasks loop:** the 12B's loop tasks overlap the 31B control's more than chance would give (a local split, as in ablation_G3.md §5.4).
+  - **No prediction:**
+    - for malformed calls (the main track's thinking-on 12B wrote cleaner calls than the 31B: 0.7% malformed against 6.3%);
+    - for the empty thought the model writes itself;
+    - for timeouts and the budget warning (faster decoding fits more calls into 4 minutes).
+- **Reading it:**
+  - The checks first, then the hazard curve and how runs end, then the stale share and loop tasks, then resolution. An arm difference no larger than the pass-to-pass row is no finding.
+  - If the shape replicates (absorbing runs, exits from outside, loops in lost runs), the paper can state the descriptive claims for two sizes. If the 12B's runs end on their own, the lock-in is the 31B's, not Gemma 4's.
+  - Selection, the copies' share and the content that doesn't cue the copy stay the 31B's results.
+- **Run it,** from `~/Gemma4_paper_track` after `git pull` there. The main track needs nothing new.
+  1. `GO=1 STEPS="modelzip ctrl_12b report" bash loops/submit_loops.sh`:
+     - the zip (CPU), with its checks in `$R/paper/loops/12b_zip.check.md`;
+     - the host compiler's check of it (CPU);
+     - pass 1 (two chained A100 jobs, 2-h limit each);
+     - a report against every arm, into `$R/paper/loops/report_12b_p1_<time>/`.
+  2. Once its GPU jobs have left the queue, `GO=1 PASS=2 STEPS="modelzip ctrl_12b report" bash loops/submit_loops.sh`. modelzip then only checks the zip's bytes.
+  - Without `GO=1` the script prints the jobs and what blocks them.
+  - The script refuses while the 12B is missing from `$R/models/` or the main checkout's `eval_gpu.slurm` doesn't serve it. A missing 31B no longer blocks this arm.
+- **Compute:** about 1–1.5 A100-hours a pass, so 2–3 in all. The 31B `ctrl` took 1 h 10; the 12B decodes faster, but every task is capped at 4 minutes and 60 calls. Each job stays on one A100, under the 2-h limit.
+- **What the report adds:** `ctrl_12b`'s pooled metrics in every table G4's report has, and the pair `ctrl_12b` − `ctrl`. The provenance table gains a model column (`31b`, `12b`). It comes from `run_meta.json`, or for runs from before that file recorded the model, from the agent dirs' `model:` lines. Otherwise every number of the old report is unchanged.
+
 ### Bonus: what makes a failed rollout useful (CPU only)
 
 **Dropped on 2026-10-20** (the user's call, at the freeze): none of it was built. The plan below stays as a record; [loops_reason_10_13.md](loops_reason_10_13.md) §9 keeps the argument.
@@ -376,7 +439,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 
 **Out of scope for round 2:**
 - localising the mechanism to attention heads;
-- other models. A 12B `ctrl` run on v31 is the cheapest scale check, but any one-step claim would need its own replay states;
+- other models. A 12B `ctrl` run on v31 is the cheapest scale check, but any one-step claim would need its own replay states. (Added after the freeze, closed loop only: the 12B control above, 2026-10-20.)
 - broad grids over temperature or thinking budget;
 - sweeps over note wordings;
 - a failure-triggered thinking controller;
@@ -416,10 +479,11 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | [make_template.py](make_template.py) | The always-block template from the model's own, and its 36 checks |
 | [loop_report.py](loop_report.py) | Loop metrics of any runs: by task group, with the template's effect on the prompts. With `--arm` and `--pair` (G3): passes pooled per arm, copies and returns, loop types, what follows a run, paired intervals over tasks, pass to pass, provenance. Since G4: lock-in by run length (all and clean steps, paired), the dedup column, what the dedup proxy did. stdlib only |
 | [make_t1_zip.py](make_t1_zip.py) | G3's T = 1 zip: the pinned zip with only its temperature line changed, and the checks that say so. stdlib only |
-| [arms.tsv](arms.tsv) | The four closed-loop arms (`ctrl`, `block`, `ctrl_t1`, `dedup`), in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
+| [make_model_zip.py](make_model_zip.py) | The 12B control's zip: the pinned zip with only its `model:` lines changed, and the checks that say so. stdlib only |
+| [arms.tsv](arms.tsv) | The five closed-loop arms (`ctrl`, `block`, `ctrl_t1`, `dedup`, `ctrl_12b`), in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
 | [g4_smoke_ids.txt](g4_smoke_ids.txt) | G4's smoke test: 4 tasks that loop on one well-formed call with the same result in every T = 0.2 control run |
-| [loops.slurm](loops.slurm) | The CPU steps: `STEP=template`, `STEP=t1zip` or `STEP=report` |
-| [submit_loops.sh](submit_loops.sh) | Queues a pass of the closed-loop arms: checks → arms → report, and G4's smoke test; dry unless `GO=1` |
+| [loops.slurm](loops.slurm) | The CPU steps: `STEP=template`, `STEP=t1zip`, `STEP=modelzip` or `STEP=report` |
+| [submit_loops.sh](submit_loops.sh) | Queues a pass of the closed-loop arms: checks → arms → report, G4's smoke test, and the 12B control; dry unless `GO=1` |
 | [dose.py](dose.py) | Round 2's G1, the dose test: `prep`, `score`, `sample`, `report`. Imports [../gate1/gate1.py](../gate1/gate1.py) |
 | [dose.slurm](dose.slurm) | The dose test's steps in one job: CPU for prep and report, one A100 for score and sample |
 | [submit_dose.sh](submit_dose.sh) | Queues prep → 2 GPU jobs → report; dry unless `GO=1` |
@@ -633,4 +697,59 @@ No GPU, and nothing queued on Explorer. The test data sits in a session scratchp
 - **Not run:**
   - the eval jobs;
   - a real ADK request through the proxy, which the smoke test covers;
+  - anything with Explorer's paths.
+
+## Tested: the 12B control (locally, 2026-10-20)
+
+No GPU, and nothing queued on Explorer. The test data sits in a session scratchpad, outside this repo: the real pinned zip (`532374430fe2`), its T = 1 twin and the main track's `budgetfit_12b` zip, copied from Explorer, and local copies of G3's and G4's runs.
+- **[make_model_zip.py](make_model_zip.py), 27 cases:**
+  - on the real pinned zip:
+    - all 10 checks pass;
+    - exactly two lines change, `agent.yaml:14` and `sub_agents/code_analyzer.yaml:3`, from the 31B to the 12B;
+    - entries, order, timestamps, compression and attributes are the source's, and `configs/sampling.yaml` and `eval_config.yaml` are byte-identical;
+    - the source is untouched, and two builds give the same bytes (sha256 `b290324c906c`);
+  - the main track's `budgetfit_12b` zip, which ran on Explorer, declares the 12B in the same form;
+  - an existing zip is only checked, never rewritten; a prefixed or upper-case `--model` is normalised, as the scorer does;
+  - refused, with nothing written:
+    - an existing `--out` that is the T = 1 zip;
+    - another model than the existing zip declares;
+    - a model a submission can't declare, or the source's own model;
+    - `--out` equal to `--src`, or no source;
+    - a source without a `model:` line, or with two models;
+    - an `--out` with another line changed too, with its sampling changed, or with the analyzer left on the 31B;
+  - the line's form is kept: a prefix, quotes, a comment, indentation and list items. Comments, other keys and non-YAML entries are untouched;
+  - it parses as Python 3.9, with LF line endings.
+- **[loops.slurm](loops.slurm)'s `STEP=modelzip`, 5 cases** on a copy with local paths:
+  - building and re-checking exit 0 and write the check report;
+  - a missing `MODEL_ID` or another model fails the job;
+  - an unknown step's message names `modelzip`;
+  - `bash -n` passes.
+- **[submit_loops.sh](submit_loops.sh): 115 cases** against G3's and G4's stubs and a fake scratch tree. G4's 83 pass unchanged, including G3's default pass (10 jobs, no `modelzip`, no `ctrl_12b`). The 32 new:
+  - `STEPS="modelzip ctrl_12b report"` queues modelzip, the host compiler's check of the 12B zip (singleton, after modelzip), 2 chained A100 jobs and the report.
+    - The arm runs the `_12b` zip into `loops_ctrl_12b_v31_a100`, with `ctrl`'s settings: PINS=1, unpaced, 4 lanes, the model's template, `DEDUP=0`.
+    - Its first job waits for the zip check.
+    - The report pools every arm's existing passes with the 12B's, adds `ctrl_12b:ctrl` after G4's pairs, and goes into `report_12b_p1_<time>`.
+  - `PASS=2` gives the `_r2` run, and both passes pooled in `report_12b_p2_<time>`. A later `STEPS=report` includes the arm once its run exists, without the tag; before that, it leaves the arm out.
+  - The 12B zip already present: the arm queues without checks, and the dry run notes that modelzip only checks it.
+  - `ZIPCHECK=0`, `AFTER`, `WIDTH=1` with `ctrl`, and t1zip and modelzip together, whose two zip checks every arm waits for.
+  - Refused:
+    - without the 12B's weights (the message gives the fetch command);
+    - without a main-track `eval_gpu.slurm` that serves the 12B;
+    - `ctrl_12b` without modelzip and without the zip;
+    - another 12B zip name in `arms.tsv`;
+    - the QoS limit.
+  - With the 31B gone from scratch, the 12B arm still queues, while 31B arms and the template step are refused.
+  - `submit_loops.sh`, `loops.slurm` and `arms.tsv` keep LF line endings.
+- **[loop_report.py](loop_report.py):**
+  - G4's 31 unit checks pass.
+  - 7 new cases for the model column: `run_meta.json`'s models; the agent dirs' `model:` lines when the file has none, as in round 1's v30 runs; a prefixed line; two models; none.
+  - The full report on G3's and G4's nine runs, before and after the change: only the provenance table changes, by its new column, and `--json` is equal apart from the model field.
+  - With a stand-in 12B run (one shard of `ctrl`'s pass 2, its `run_meta.json` set to the 12B), the provenance says `12b`, and the pair `ctrl_12b` − `ctrl` runs on the 28 shared tasks.
+- **[../baseline/baseline_report.py](../baseline/baseline_report.py)** with the new `arms.tsv`:
+  - on G3's and G4's runs, `ctrl_12b` shows "no runs yet", and every other row is unchanged;
+  - with the stand-in run, `ctrl_12b` is compared with `ctrl` over its 28 tasks.
+- **Not run:**
+  - the jobs;
+  - the host compiler's check of the 12B zip, which runs as the `modelzip check` job;
+  - vLLM serving the 12B with thinking off;
   - anything with Explorer's paths.
