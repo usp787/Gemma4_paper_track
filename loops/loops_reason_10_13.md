@@ -129,6 +129,7 @@ $$P(N = n) = q^{n}(1-q), \qquad \mathbb{E}[N] = \frac{q}{1-q}$$
 | Mean agent seconds per task | 120 → 117 | 98 → 116 |
 
   - Both arms resolve 37 of 109. The block lowers the stale share and fragments runs of identical calls, but more runs start. On rich it also costs time and malformed calls.
+  - *Superseded on v31 (G3, 2026-10-16; the paper reports v31's result):* the fragmentation replicates, but the stale share doesn't fall: +1.6 points (−4.5 to +7.6), against −5.7 (−12.3 to +0.3) here, both paired over tasks. Resolution: 38 of 109, against 35 and 37 for the control. See [ablation_G3.md](../ablation/ablation_G3.md).
   - A broader measure, stretches of 3+ bad calls in a row, counts any stale or malformed calls, not only identical ones. Their number barely changed (36 → 41 on dev, 36 → 29 on rich), and they got shorter (18.9 → 11.0 calls on dev, 22.0 → 19.9 on rich). The two measures count different things; don't mix them.
 
 ## 2. The repeated result as the cue for the copy

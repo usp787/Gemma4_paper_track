@@ -27,7 +27,14 @@ with arm B task by task. Then the report adds, per group and over all tasks:
 - per pair, A − B for each metric, with a 95% interval from resampling tasks (--reps, --seed). Each resampled task
   brings all of its runs in both arms, so the passes stay paired with their task;
 - per arm with 2 or more runs, run 2 − run 1 the same way: how much one pass varies;
-- every run's provenance: wheelhouse, harness, vLLM build, zip, chat template, sampling, PINS, pace, budget, GPU.
+- every run's provenance: wheelhouse, harness, vLLM build, zip, chat template, the proxy's dedup, sampling, PINS, pace,
+  budget, GPU;
+- lock-in by run length (G3's split, and G4's readout): P(one more identical call | the last k calls identical, the
+  last one well formed) for k = 1, 2, 3-4, 5-9, 10+, on all steps and on clean steps (no budget warning in the last
+  result, no compaction before the next call), pooled per arm and paired per pair on all steps;
+- for arms run with the main track's dedup proxy (G4; eval_gpu.slurm DEDUP), what the proxy did, from calls.jsonl: the
+  main agent's requests it collapsed, and a check that it fired: the requests that followed a copy with the same
+  result (from the traces) against the requests whose last run it collapsed.
 """
 from __future__ import annotations
 
@@ -77,7 +84,7 @@ def load_run(run: Path) -> dict:
             continue
         trace = json.loads(f.read_text(encoding="utf-8"))
         tasks[t] = {"resolved": bool(r.get("resolved")), "calls": gate1.label_calls(trace, gate1.main_agent(trace)),
-                    "prompt_ends": [], "opens": []}
+                    "prompt_ends": [], "opens": [], "dedup": []}
     for shard in sorted(set(shard_of.values())):
         mine = {t for t, s in shard_of.items() if s == shard and t in tasks}
         recs = defaultdict(list)
@@ -85,14 +92,15 @@ def load_run(run: Path) -> dict:
             if c.get("task") in mine and c.get("n_tools") and c.get("prompt_ids"):
                 ids = first_ids(c)
                 recs[c["task"]].append((c.get("i", 0), c["n_tools"], c["prompt_ids"][-4:] == EMPTY_IDS,
-                                        bool(ids) and ids[0] == CH_OPEN))
+                                        bool(ids) and ids[0] == CH_OPEN, c.get("dedup")))
         if not recs:
             continue
-        main = Counter(n for rs in recs.values() for _, n, _, _ in rs).most_common(1)[0][0]   # the main agent's tools
+        main = Counter(x[1] for rs in recs.values() for x in rs).most_common(1)[0][0]   # the main agent's tools
         for t, rs in recs.items():
-            calls = [x for x in sorted(rs) if x[1] == main]
+            calls = [x for x in sorted(rs, key=lambda x: x[0]) if x[1] == main]
             tasks[t]["prompt_ends"] = [x[2] for x in calls]
             tasks[t]["opens"] = [x[3] for x in calls]
+            tasks[t]["dedup"] = [x[4] for x in calls if x[4] is not None]
     template = (run / ".chat_template").read_text().strip() if (run / ".chat_template").is_file() else "model"
     return {"name": run.name, "tasks": tasks, "template": template, "prov": provenance(run, template)}
 
@@ -112,9 +120,11 @@ def provenance(run: Path, template: str) -> dict:
         samplings.add(", ".join(f"{k} {v}" for k, v in SAMPLING_KEYS.findall(f.read_text(encoding="utf-8"))))
     short = lambda x: str(x)[:12] if x else "-"
     budget = meta.get("budget") or {}
+    # eval_gpu.slurm's DEDUP (G4): run_meta.json since it exists, else the run dir's marker; runs from before it had none
+    dedup = meta.get("proxy_dedup") or ((run / ".dedup").read_text().strip() if (run / ".dedup").is_file() else "none")
     return {"wheelhouse": meta.get("wheelhouse_version") or "-", "harness": short(meta.get("harness_sig")),
             "vllm": short(meta.get("host_vllm_sha")), "zip": short(meta.get("agent_zip_sha256")), "template": template,
-            "sampling": " | ".join(sorted(samplings)) or "-", "pins": meta.get("pins", "-"), "pace": meta.get("pace") or "-",
+            "dedup": dedup, "sampling": " | ".join(sorted(samplings)) or "-", "pins": meta.get("pins", "-"), "pace": meta.get("pace") or "-",
             "budget": (f"{budget.get('max_time_minutes')} min, {budget.get('max_tool_calls')} calls, "
                        f"{budget.get('max_turns')} turns") if budget else "-", "gpu": meta.get("gpu") or "-",
             "agreed": len(samplings) <= 1}
@@ -215,6 +225,26 @@ RATIOS = {   # metric -> (numerator, denominator), both summed over task-runs
 SHARES = {"resolved", "stale", "copies", "returns", "malformed", "lock-in k=2", "lock-in k=3+", "loop tasks",
           "re-entered", "next call works", "source edit after", "tasks with a source edit"}
 PASS_METRICS = ("resolved", "stale", "copies", "returns", "lock-in k=3+", "runs 3+ per task")
+# Lock-in by run length, well-formed calls (G3's local split; G4's readout): k bins of the last call's run length
+K_BINS = ((1, 1), (2, 2), (3, 4), (5, 9), (10, 10 ** 9))
+K_LABELS = tuple(f"k={a}" if a == b else f"k={a}+" if b >= 10 ** 9 else f"k={a}-{b}" for a, b in K_BINS)
+HAZ = {**{f"hazard {lab}": (f"h:{lab}", f"hn:{lab}") for lab in K_LABELS},   # not "lock-in k=2": RATIOS has that one
+       **{f"hazard {lab}, clean": (f"hc:{lab}", f"hcn:{lab}") for lab in K_LABELS}}
+SHARES |= set(HAZ)
+ALL_RATIOS = {**RATIOS, **HAZ}
+
+
+def k_label(k: int) -> str:
+    return next(lab for (a, b), lab in zip(K_BINS, K_LABELS) if a <= k <= b)
+
+
+def prompt_tokens(c: dict) -> int:
+    return (c["step"].get("metrics") or {}).get("prompt_tokens") or 0
+
+
+def clean_step(p: dict, n: dict) -> bool:
+    """No budget warning in p's result, and n's prompt no shorter than p's (no compaction between)."""
+    return not (isinstance(p["obs"], dict) and "budget_warning" in p["obs"]) and prompt_tokens(n) >= prompt_tokens(p)
 
 
 def loop_type(c: dict) -> str:
@@ -243,6 +273,14 @@ def counts(x: dict) -> Counter:
             if k >= 2:
                 out[f"l{k}n"] += 1
                 out[f"l{k}"] += c["same_as_prev"]
+            p = cs[i - 1]
+            if not p["malformed"]:
+                lab = k_label(p["run_k"])
+                out[f"hn:{lab}"] += 1
+                out[f"h:{lab}"] += c["same_as_prev"]
+                if clean_step(p, c):
+                    out[f"hcn:{lab}"] += 1
+                    out[f"hc:{lab}"] += c["same_as_prev"]
     for s, e in runs_of(cs):
         n = e - s + 1
         if n < 3:
@@ -263,7 +301,7 @@ def counts(x: dict) -> Counter:
 
 
 def ratio(cnt: Counter, name: str):
-    num, den = RATIOS[name]
+    num, den = ALL_RATIOS[name]
     return cnt[num] / cnt[den] if cnt[den] else None
 
 
@@ -289,14 +327,14 @@ def paired(a: dict, b: dict, names, reps: int, seed: int) -> dict:
         return {"common": 0}
     sa = [sum(a[t], Counter()) for t in common]
     sb = [sum(b[t], Counter()) for t in common]
-    keys = sorted({k for name in names for k in RATIOS[name]})
+    keys = sorted({k for name in names for k in ALL_RATIOS[name]})
     va = {k: [c[k] for c in sa] for k in keys}
     vb = {k: [c[k] for c in sb] for k in keys}
 
     def diff(w):   # w: weights per common task
         out = {}
         for name in names:
-            num, den = RATIOS[name]
+            num, den = ALL_RATIOS[name]
             da, db = sum(x * y for x, y in zip(w, va[den])), sum(x * y for x, y in zip(w, vb[den]))
             out[name] = (sum(x * y for x, y in zip(w, va[num])) / da - sum(x * y for x, y in zip(w, vb[num])) / db
                          if da and db else None)
@@ -372,6 +410,8 @@ def report_arms(arms: dict[str, list[dict]], pairs: list[tuple[str, str]], group
         print(f"| {name} | " + " | ".join(str(c["type:" + t]) for t in TYPES) + " |")
     print("\nsearch: a read-only grep or find (dose.py's rule); command: any other run_command; submit: submit_patch, "
           "the termination loop; malformed: the call's arguments don't fit the tool, whatever the tool.\n")
+    out["lock_in_by_k"] = report_lock_in(arms, all_ids)
+    out["proxy"] = report_proxy(arms, all_ids)
     if pairs:
         print("## Paired differences, all tasks\n")
         print(f"A − B on the tasks both arms ran; 95% intervals from {reps} resamples of tasks (seed {seed}). Shares "
@@ -390,6 +430,19 @@ def report_arms(arms: dict[str, list[dict]], pairs: list[tuple[str, str]], group
         for name, d in res["metrics"].items():
             print(f"| {name} | {fmt_metric(name, d['a'])} | {fmt_metric(name, d['b'])} | {fmt_diff(name, d)} |")
         print()
+    done = [(a, b) for a, b in pairs if a in arms and b in arms]
+    if done:
+        names = [f"hazard {lab}" for lab in K_LABELS]
+        print("## Lock-in by run length, paired, all tasks\n")
+        print("A − B in P(one more identical call | run length k), well-formed calls, all steps; percentage points, "
+              "with 95% intervals from resampling tasks.\n")
+        print("| pair | " + " | ".join(K_LABELS) + " |\n|---|" + "---|" * len(K_LABELS))
+        for a, b in done:
+            res = paired(by_task(arms[a], all_ids), by_task(arms[b], all_ids), names, reps, seed)
+            out["pairs"].setdefault(f"{a} - {b}", {})["lock_in_by_k"] = res
+            cells = [fmt_diff(n, res["metrics"][n]) if res["common"] else "-" for n in names]
+            print(f"| {a} − {b} | " + " | ".join(cells) + " |")
+        print()
     multi = {n: r for n, r in arms.items() if len(r) >= 2}
     if multi:
         print("## Pass to pass: each arm's run 2 − run 1, all tasks\n")
@@ -405,15 +458,93 @@ def report_arms(arms: dict[str, list[dict]], pairs: list[tuple[str, str]], group
     return out
 
 
+def report_lock_in(arms: dict[str, list[dict]], ids: set) -> dict:
+    """Each arm's lock-in by run length, pooled over its passes: all steps, and clean steps only."""
+    out = {}
+    print("### Lock-in by run length, well-formed calls, all tasks\n")
+    print("P(one more identical call | the last k calls were identical, the last one well formed): pooled over the "
+          "arm's passes, with the number of steps. Clean steps: no budget warning in the last result, no compaction "
+          "before the next call. Under dedup the model's request is the same at every k of a run, so any rise with k "
+          "there comes from which states keep looping (README.md §3, G4).\n")
+    print("| arm | steps | " + " | ".join(K_LABELS) + " |\n|---|---|" + "---|" * len(K_LABELS))
+    for name, runs in arms.items():
+        c = pooled(by_task(runs, ids))
+        out[name] = {}
+        for kind, suffix in (("all", ""), ("clean", ", clean")):
+            cells = []
+            for lab in K_LABELS:
+                num, den = HAZ[f"hazard {lab}{suffix}"]
+                out[name][f"{lab}{suffix}"] = {"p": ratio(c, f"hazard {lab}{suffix}"), "n": c[den]}
+                cells.append(f"{pct(ratio(c, f'hazard {lab}{suffix}'))} ({c[den]})")
+            print(f"| {name} | {kind} | " + " | ".join(cells) + " |")
+    print()
+    return out
+
+
+def dedup_min(desc: str) -> int | None:
+    """eval_gpu.slurm's DEDUP_DESC ("runs>=N") -> N; None for no dedup."""
+    m = re.fullmatch(r"runs>=(\d+)", desc or "")
+    return int(m.group(1)) if m else None
+
+
+def report_proxy(arms: dict[str, list[dict]], ids: set) -> dict:
+    """For arms run with the dedup proxy: what it did, from calls.jsonl, and whether it fired where the traces say it
+    should: on the request right after a run of N identical calls with the same result (N = the run's DEDUP)."""
+    rows = {}
+    for name, runs in arms.items():
+        c = Counter()
+        for r in runs:
+            n_min = dedup_min(r["prov"]["dedup"])
+            if n_min is None:
+                continue
+            c["runs"] += 1
+            for t, x in r["tasks"].items():
+                if t not in ids:
+                    continue
+                cs, ds = x["calls"], x["dedup"]
+                c["requests"] += len(ds)
+                c["collapsed"] += sum(d.get("dropped_turns", 0) > 0 for d in ds)
+                c["dropped"] += sum(d.get("dropped_turns", 0) for d in ds)
+                c["longest"] = max([c["longest"], *(d.get("longest", 0) for d in ds)])
+                # record i is the request that produced call i; one more after the last call isn't in the trace
+                c["tail_seen"] += sum(d.get("tail", 0) >= n_min for d in ds[1:len(cs)])
+                k = 1   # the run of identical calls with identical results that ends at call i - 1
+                for i in range(1, len(cs)):
+                    same = (cs[i - 1]["same_as_prev"] and i >= 2 and
+                            (cs[i - 1]["step"].get("observation") or {}).get("content")
+                            == (cs[i - 2]["step"].get("observation") or {}).get("content"))
+                    k = k + 1 if same else 1
+                    c["tail_expected"] += k >= n_min
+        if c["runs"]:
+            rows[name] = c
+    if not rows:
+        return {}
+    print("### What the dedup proxy did, all tasks\n")
+    print("From calls.jsonl, the main agent's requests. Expected: requests that followed a run of N identical calls with "
+          "the same result (from the traces), which the proxy must collapse at their end; seen: those of the first "
+          "requests of each task, one per call, whose last run it collapsed. The two should agree; a gap means "
+          "requests without a record (a call cut by the task timeout) or extra ones (a retried request).\n")
+    print("| arm | runs with dedup | requests | collapsed | turns dropped | longest run | expected / seen at the end |")
+    print("|---|---|---|---|---|---|---|")
+    out = {}
+    for name, c in rows.items():
+        out[name] = dict(c)
+        print(f"| {name} | {c['runs']} | {c['requests']} | {c['collapsed']} ({pct(share(c['collapsed'], c['requests']))}) | "
+              f"{c['dropped']} | {c['longest']} | {c['tail_expected']} / {c['tail_seen']} |")
+    print()
+    return out
+
+
 def print_provenance(runs: list[dict]) -> None:
     print("## Provenance\n")
-    print("| run | wheelhouse | harness | vLLM build | zip sha256 | chat template | sampling | PINS | pace | budget | GPU |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|")
+    print("| run | wheelhouse | harness | vLLM build | zip sha256 | chat template | dedup | sampling | PINS | pace | budget "
+          "| GPU |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in runs:
         p = r["prov"]
         samp = p["sampling"] + ("" if p["agreed"] else " (agent dirs disagree!)")
-        print(f"| {r['name']} | {p['wheelhouse']} | {p['harness']} | {p['vllm']} | {p['zip']} | {p['template']} | {samp} "
-              f"| {p['pins']} | {p['pace']} | {p['budget']} | {p['gpu']} |")
+        print(f"| {r['name']} | {p['wheelhouse']} | {p['harness']} | {p['vllm']} | {p['zip']} | {p['template']} | "
+              f"{p['dedup']} | {samp} | {p['pins']} | {p['pace']} | {p['budget']} | {p['gpu']} |")
     print("\nSampling is read from the agent dirs the eval jobs extracted (configs/sampling.yaml). Keys the file doesn't "
           "set, such as top_k, come from the model's generation config.\n")
 

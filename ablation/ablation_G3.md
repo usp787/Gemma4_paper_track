@@ -336,10 +336,10 @@ Written in README.md §3 before the run.
 
 ## 9. What it changes
 
-- **README.md (loops/) line 10, "the stale share falls 5–6 points"**, holds for v30 only, and even there its interval includes 0 (−5.7, −12.3 to +0.3). On v31 it is +1.6.
-  - Suggested wording: "the always-block template reshapes loops over whole tasks: runs fragment and lock-in at 3+ falls about 6 points, in both rounds; the stale share fell 5.7 points on v30 (−12.3 to +0.3) and didn't fall on v31."
-  - Not yet edited. Round 1's result line (353, "Result (2026-10-12)") has the same claim.
-- **loops_reason_10_13.md** has the same claim (§1, line 131, "The block lowers the stale share"). Also, its §3 temperature argument can now cite §5.1: lock-in at T = 1, measured in the closed loop.
+- **The block's claim now uses v31's result** (the user's call, 2026-10-19). The old claim, "the stale share falls 5–6 points", held on v30 only, and even there its interval included 0 (−5.7, −12.3 to +0.3). On v31 the change is +1.6.
+  - loops/README.md's summary (line 10) now states v31's result.
+  - Round 1's result line ("Result (2026-10-12)") and loops_reason_10_13.md §1 keep their v30 text, each with a note that v31 supersedes it.
+- **loops_reason_10_13.md §3's temperature argument** can now cite §5.1: lock-in at T = 1, measured in the closed loop. Not yet edited.
 - **G4:** G2 failed G4's condition. G3 adds that exits come only from changes to the context, and that compactions make them by accident (§5.2) but are often followed by re-entry (§5.6).
   - The proposal for G4's slot stands: a closed-loop dedup arm against v31's `ctrl`, two passes, about 3 A100-hours (ablation_G2.md §8; ablation_recap_10_17.html, "What we would try next").
   - Measure it by stale share, re-entry and what the freed calls buy, before resolution.

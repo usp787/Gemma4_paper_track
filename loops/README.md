@@ -1,13 +1,13 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17.html). -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17.html). Updated 2026-10-19: G3's result and record (ablation_G3.md); the always-block claim now uses v31's result; G4 drafted as the dedup arm (section 3). -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
 **The working claim, narrowed after round 1 (2026-10-13): spontaneous thinking often skips the looping states where a forced thought helps.**
 - Where T-think skipped the thought, a forced thought (T-open) escapes 58% of the time, against 11% (114 states in 36 tasks; paired difference +47 points, 95% interval 33 to 61). Where T-think thought, the two escape 62% and 63%.
 - An escape is one step ahead: a call that is neither stale nor malformed, not yet a useful one.
-- The always-block template reshapes loops over whole tasks: the stale share falls 5–6 points and runs fragment. Resolution doesn't move: 37 of 109 in both arms.
+- The always-block template reshapes loops over whole tasks without cutting them (v31, round 2's G3, [ablation_G3.md](../ablation/ablation_G3.md)). Runs fragment: they are 9 calls shorter, more of them start, lock-in at 3+ falls 5.6 points, and the agent returns to old calls more often. But the stale share doesn't fall (+1.6 points, −4.5 to +7.6). Resolution doesn't move: 38 of 109, against 35 and 37 in the control's two passes.
 - Lock-in is partly self-reinforcement (round 2's G1, 2026-10-14). At fixed histories, identical copies raise the next copy: p(c) is 0.002, 0.098 and 0.434 for 1, 2 and 4 copies, while re-spelled copies of the same search stay near 0.03. But four forced copies give 43%, while in the closed loop a run of three or more gets one more copy 96% of the time. So the observed curve also reflects which histories loop.
 - The results' content doesn't cue the copy (round 2's G2, 2026-10-15). Varying IDs and a faithful "zero matches" note leave p(c) where it was. Deleting the earlier copies (dedup) or ending the context unlike them (the block) cuts it. With the empty thought before every earlier call too, the copy comes back in full, so the block works as a pattern break ([ablation_G2.md](../ablation/ablation_G2.md)).
 - "A stuck agent is a confident agent" stays an interpretation. The replay measures the probability of the recorded call, not calibrated confidence. `v2`'s advisor fits it: the model calls the advisor before edits, and almost never right after a bad call.
@@ -84,7 +84,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14, G2 on 2026-10-15 and G3 on 2026-10-15/16. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md) and [ablation_G3.md](../ablation/ablation_G3.md). Nothing else here is built or queued yet.
+G1 ran on 2026-10-14, G2 on 2026-10-15 and G3 on 2026-10-15/16. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md) and [ablation_G3.md](../ablation/ablation_G3.md). G4, the dedup arm, is drafted and tested locally (2026-10-19), not yet run. Nothing else here is built or queued yet.
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -101,7 +101,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 | G1 | Do added copies raise p(copy) at a fixed history? | 1, 2 or 4 copies of one call/result block, against paraphrases of the same search and, where one exists, a different search | ~60 histories | 1–2 |
 | G2 | Is the cue the result's surface match, or what it means? | 2 × 2 replay factorial with two anchors, plus one empty-thought context | ~120–160 states (drafted: 133, in 23 tasks) | 4–6 (drafted: ~2.5) |
 | G3 | Does lock-in survive T = 1? Do round 1's closed-loop findings replicate? | `ctrl` and `block` at T = 0.2, `ctrl` at T = 1; two passes each, on v31 | 109 tasks × 6 runs | 9–15 |
-| G4 | (conditional) Does the best feedback rendering help over whole tasks? | G2's winner against its matched control, two passes each | 109 tasks × 4 runs | 6–10 |
+| G4 | (as planned: does the best feedback rendering help over whole tasks? G2 found none.) Since 2026-10-19: does deleting the copies cut loops over whole tasks, and how much of the lock-in curve is selection? | `dedup` (the proxy collapses runs of identical tool turns) against G3's `ctrl` and `block`, two passes, after a 4-task smoke | 109 tasks × 2 runs | ~3 |
 
 - **Compute:** G1–G3 total 14–23 A100-hours. With G4, reruns and scoring fixes, reserve 30–45.
 - **Basis of the estimates:** round 1's measured jobs: control 1 h 19 min and always-block 1 h 28 min for 109 tasks at 4 lanes; T-open 1 h 20 min for 581 states. G1 and G2 generate no thoughts, so they should land at the low end.
@@ -301,16 +301,51 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
   - resolved 71 against 72 of 218 (−0.5 points, −5.0 to +4.1);
   - the 0.70–0.85 prediction holds at the onset (k = 3–4: 0.67, and 0.77 on clean steps), not in the pooled 3+.
 - **At T = 0.2, long runs end only from outside:** on clean steps, every step after 5+ identical calls continues the run (1,342 of 1,342). The 58 well-formed runs of 10+ ended after the budget warning (43), at a compaction (14) or at the task's end (1).
-- **The block** replicates round 1's shape: lock-in at 3+ −5.6, runs of 3+ +0.35 per task, run length −9, re-entry +26. It doesn't replicate the stale drop (+1.6, −4.5 to +7.6), so line 10's "stale share falls 5–6 points" holds for v30 only.
+- **The block** replicates round 1's shape: lock-in at 3+ −5.6, runs of 3+ +0.35 per task, run length −9, re-entry +26. It doesn't replicate the stale drop (+1.6, −4.5 to +7.6), so the summary at the top now states v31's result (2026-10-19).
 
-### G4. Conditional: feedback over whole tasks
+### G4. Dedup over whole tasks (drafted 2026-10-19)
 
-- **When:** only if G2's semantic rendering has a clear, reproducible effect beyond placebo. It has none (G2, 2026-10-15), so G4 doesn't run as written. [ablation_G2.md](../ablation/ablation_G2.md) §8 proposes a closed-loop dedup arm for its slot; not decided.
-- **How it runs:** the rendering may use only history already observed.
-  - The always-block arm's route, a chat template, can carry it if the template can express the rendering.
-  - Otherwise it needs a harness change, plus smoke checks before full runs.
-- **Measures:** executed-call usefulness, loop re-entry, time and resolution, not only fewer exact copies.
-- If G2 is weak, or integration threatens writing time, drop G4 and keep the paper's claims one step ahead.
+[submit_loops.sh](submit_loops.sh) (steps `smoke` and `dedup`), with [arms.tsv](arms.tsv), [loop_report.py](loop_report.py), [g4_smoke_ids.txt](g4_smoke_ids.txt) and, in the main track, `baseline/token_proxy.py --dedup` with `baseline/eval_gpu.slurm`'s `DEDUP` knob. Tested locally (the last section), not yet run.
+
+**Why this arm:** the planned G4 was to carry G2's best rendering of the results over whole tasks, and G2 found none ([ablation_G2.md](../ablation/ablation_G2.md) §8). G2's strongest one-step lever was deleting the earlier copies: at copy states p(c) fell from 0.79 to 0.07 and escapes rose from 3% to 43%, where the block mostly turned copies into other stale calls. G3 adds that at T = 0.2 long runs end only on changes to the context: the budget warning, or a compaction, which removes history by accident ([ablation_G3.md](../ablation/ablation_G3.md) §5.2). Chosen for G4's slot on 2026-10-19.
+
+| Arm | Zip | Chat template | Proxy | Sampling |
+|---|---|---|---|---|
+| `dedup` | `off_args`'s pinned zip (`532374430fe2`) | the model's | `DEDUP=2` | T = 0.2, top-p 0.95, as `ctrl` |
+
+- **Against G3's arms:** `ctrl` (two passes on v31) and `block` (one), on the same 109 tasks, PINS=1, unpaced, 4 tasks at once on one A100.
+- **What the proxy does:** before forwarding each chat request, every run of 2 or more identical tool turns in a row (the same calls with the same results) becomes its first turn. The harness executes and counts every call, and its trace keeps them; only what the model sees changes.
+  - So while the agent re-sends a call that gets the same result, it is asked the same question again. The request is byte for byte the one that followed the run's first call: checked on the 1,924 such requests rebuilt from G3's two control passes.
+  - A different result breaks a run. In G3's control, 86% of copies return the same bytes as the call before; most of the rest carry the budget warning (126 of 156 in pass 1) or a timestamp in a test's output.
+  - Returns (a call re-sent after other calls) stay as they are: G2 found dedup does little there.
+  - No seed is sent: the agent's `sampling.yaml` sets none, and `adk_submission` forwards one only when it is set. So each repeated request is a fresh draw. The proxy logs it if a request ever carries a seed.
+  - The analyzer sub-agent's requests go through the same proxy.
+- **Why the proxy and not a chat template:** a template would need lookahead over the messages to drop earlier copies, while the proxy already sees and records every request. Neither reaches Kaggle, where a zip can change neither. Like the always-block, G4 tests a mechanism, not a submission.
+- **G4 also answers the review's open question in the closed loop:** how much of the lock-in curve is selection?
+  - Under dedup, the model's request at every k of a run is the one after the run's first call. So P(one more | k) can rise with k only through which states keep looping. In `ctrl`, each copy also enters the request.
+  - The gap between the two curves at each k is what the visible copies add.
+  - **A selection-only curve from G2's files:** take each copy state's dedup p(c) at the run's sampling as its chance to continue. The pooled hazard is then 0.29 after the first copy, then 0.67, 0.79, 0.85, 0.88, and 0.95 by the 10th re-send (56 copy states, 4 of them above 0.9). G2's states come from long runs, so the closed loop's copy starts should begin lower.
+- **Predictions, written before the run** (`dedup` against `ctrl`, passes pooled, all tasks, well-formed calls for the hazards):
+  - **A check, not a finding:** copy starts (k = 1) as `ctrl`'s, within 1 point (2.5%). Dedup can't act before the first copy.
+  - **Lock-in at k = 2** falls from 67% to 15–35%.
+  - **The hazard still rises with k.** k = 3–4 lies above k = 2, and k = 10+ is at 85% or more on clean steps, but on at most a third of `ctrl`'s 1,052 clean steps there. A curve that stays flat near its k = 2 level would mean the copies themselves carry the lock-in.
+  - **Copies** fall by at least half (28.0% of calls → 14% or less), runs of 5+ per task from 0.42 to 0.25 or less, and runs of 3+ get shorter.
+  - **The stale share** falls by at least 8 points (38.6% → 31% or less), unlike the block's +1.6, because dedup turns copies into escapes, not other stale calls (G2). Returns rise by 0–4 points.
+  - **After a run of 3+,** the next call works at least as often as in `ctrl` (60.7%), and more often than in `block` (52.7%).
+  - **No prediction for resolution.** The prior is no change: T = 1 un-looped 46 loop task runs and solved 9, against 10 (ablation_G3.md §5.3), and 23 of 24 loops began before the first source edit. Two passes can't detect a change of 1–2 tasks.
+- **Reading it:**
+  - The checks first: the proxy table's expected and seen agree; copy starts match `ctrl`'s; the provenance is G3's control except the dedup column. If the harness or the vLLM build differs from G3's, run a fresh control pass (`GO=1 PASS=3 STEPS="ctrl report"`) before reading anything else.
+  - Then the two lock-in curves, then the stale share and what follows a run, then resolution.
+  - An arm difference no larger than the pass-to-pass row is no finding.
+- **Run it,** from `~/Gemma4_paper_track` after `git pull` there and in `~/Gemma4_kaggle_repo`:
+  1. `GO=1 STEPS=smoke bash loops/submit_loops.sh`: one A100 job (45-min limit), the dedup arm on the 4 tasks of [g4_smoke_ids.txt](g4_smoke_ids.txt), into `loops_dedup_smoke_v31_a100`. Each of these tasks loops on one well-formed call with the same result in all three T = 0.2 control runs (31–40 copies), and none was ever solved. Afterwards, run the printed `python3 loops/loop_report.py ...` on the login node. The proxy table's expected and seen must agree and be above 0: the proxy then collapses the harness's real requests, which the local tests could only rebuild.
+  2. `GO=1 STEPS="dedup report" bash loops/submit_loops.sh`: pass 1 (two chained A100 jobs), then a report against G3's arms, both control passes included, into `$R/paper/loops/report_g4_p1_<time>/`.
+  3. Once its GPU jobs have left the queue, `GO=1 PASS=2 STEPS="dedup report" bash loops/submit_loops.sh`.
+  - Without `GO=1` the script prints the jobs and what blocks them.
+- **Compute:** about 0.5 A100-hour for the smoke and 1.2 per pass (as G3's `ctrl`): about 3 in all.
+- **What the report adds,** for every arm: lock-in by run length (k = 1, 2, 3–4, 5–9, 10+) on all steps and on clean steps, paired per pair; a dedup column in the provenance; and for dedup arms, what the proxy did. Pairs: `dedup` − `ctrl` and `dedup` − `block`, besides G3's.
+  - On G3's runs, the new tables reproduce G3's local split (ablation_G3.md §5.1).
+  - Every number of the old report is unchanged.
 
 ### Bonus: what makes a failed rollout useful (CPU only)
 
@@ -342,7 +377,7 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 |---|---|
 | Oct 14–16 | A0; the code for G1–G3, tested locally against a fake vLLM, as in round 1 |
 | Oct 17–22 | G1–G3 runs and paired analysis |
-| Oct 23–26 | G4, only if G2 warrants it |
+| Oct 23–26 | G4, only if G2 warrants it (since 2026-10-19: the dedup arm; smoke, then two passes) |
 | Oct 27 | Freeze the experiments |
 | Oct 27–Nov 5 | Write the paper; reproducible figures and code |
 | Nov 6–10 | Review, corrections, early submission |
@@ -361,17 +396,19 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 **Reading it:** trace metrics first, as everywhere in this paper. Look at stale repeats, copy starts, lock-in at k = 2 and runs of 5+. Resolved tasks come second: one run varies by ±2.2. The "about 2 of 70 tasks" that removing every loop would gain is an observed cross-run rescue estimate (6 of 23 loop failures were solved by at least one of 9 other runs), not an upper bound.
 
 **Result (2026-10-12):** the block lowers the stale share and fragments the runs, but more runs start, and resolution is unchanged (dev 25 → 24, rich 12 → 13). The full table is in [loops_reason_10_13.md](loops_reason_10_13.md) §1.
+- **Superseded by v31 (G3, 2026-10-16), which the paper reports.** The fragmentation replicates, but the stale share doesn't fall: +1.6 points (−4.5 to +7.6), against round 1's −5.7 (−12.3 to +0.3). See §3's G3 result and [ablation_G3.md](../ablation/ablation_G3.md).
 
 ## Files
 
 | File | What it does |
 |---|---|
 | [make_template.py](make_template.py) | The always-block template from the model's own, and its 36 checks |
-| [loop_report.py](loop_report.py) | Loop metrics of any runs: by task group, with the template's effect on the prompts. With `--arm` and `--pair` (G3): passes pooled per arm, copies and returns, loop types, what follows a run, paired intervals over tasks, pass to pass, provenance. stdlib only |
+| [loop_report.py](loop_report.py) | Loop metrics of any runs: by task group, with the template's effect on the prompts. With `--arm` and `--pair` (G3): passes pooled per arm, copies and returns, loop types, what follows a run, paired intervals over tasks, pass to pass, provenance. Since G4: lock-in by run length (all and clean steps, paired), the dedup column, what the dedup proxy did. stdlib only |
 | [make_t1_zip.py](make_t1_zip.py) | G3's T = 1 zip: the pinned zip with only its temperature line changed, and the checks that say so. stdlib only |
-| [arms.tsv](arms.tsv) | The three closed-loop arms (`ctrl`, `block`, `ctrl_t1`), in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
+| [arms.tsv](arms.tsv) | The four closed-loop arms (`ctrl`, `block`, `ctrl_t1`, `dedup`), in [../baseline/arms.tsv](../baseline/arms.tsv)'s format |
+| [g4_smoke_ids.txt](g4_smoke_ids.txt) | G4's smoke test: 4 tasks that loop on one well-formed call with the same result in every T = 0.2 control run |
 | [loops.slurm](loops.slurm) | The CPU steps: `STEP=template`, `STEP=t1zip` or `STEP=report` |
-| [submit_loops.sh](submit_loops.sh) | Queues a pass of the closed-loop arms: checks → arms → report; dry unless `GO=1` |
+| [submit_loops.sh](submit_loops.sh) | Queues a pass of the closed-loop arms: checks → arms → report, and G4's smoke test; dry unless `GO=1` |
 | [dose.py](dose.py) | Round 2's G1, the dose test: `prep`, `score`, `sample`, `report`. Imports [../gate1/gate1.py](../gate1/gate1.py) |
 | [dose.slurm](dose.slurm) | The dose test's steps in one job: CPU for prep and report, one A100 for score and sample |
 | [submit_dose.sh](submit_dose.sh) | Queues prep → 2 GPU jobs → report; dry unless `GO=1` |
@@ -535,4 +572,52 @@ No GPU, and nothing queued on Explorer. The test data sits in a session scratchp
   - the eval jobs;
   - `package_submission.slurm` on the T = 1 zip;
   - `make_t1_zip.py` on the real pinned zip; its rebuilt twin has the same entries and sizes;
+  - anything with Explorer's paths.
+
+## Tested: G4's dedup arm (locally, 2026-10-19)
+
+No GPU, and nothing queued on Explorer. The test data sits in a session scratchpad, outside this repo: local copies of G3's seven closed-loop runs (traces, `task_results.jsonl`, `run_meta.json`) and G2's work dir.
+- **The main track's `baseline/token_proxy.py --dedup`, 26 checks:**
+  - 18 on hand-made OpenAI-style messages:
+    - a run collapses to its first turn, and the kept messages are the same objects;
+    - a different result (a budget warning) or a message in between breaks a run, and a return isn't one;
+    - `tool_responses` (ADK's role for gemma4 model strings) counts as a result;
+    - arguments compare as JSON, and the assistant's text isn't part of a turn;
+    - two-call turns collapse only when both calls and both results match, in either order;
+    - calls without their results, or without ids, are never collapsed;
+    - `--dedup 3` leaves runs of 2 alone.
+  - 2 on requests rebuilt from G3's two control passes, as ADK's LiteLlm writes them. Every request that follows a copy with the same result collapses at its end: 969 of 969 and 955 of 955. Each is exactly the request after the run's first call, tool-call ids included.
+  - 6 end to end, between a client and a fake vLLM (uvicorn):
+    - without `--dedup`, the proxy forwards every message, and its record has the same keys as before;
+    - with it, 10 messages go out as 6, the rest of the body is unchanged, and the record adds `n_messages_in` and the stats;
+    - the client gets vLLM's reply without token ids either way;
+    - a seed is logged once, and `--dedup 1` is refused.
+- **`eval_gpu.slurm`'s `DEDUP` block, 12 cases** on the extracted lines:
+  - unset, 0, 2, 3 and 12 work, and 1 and `x` are refused;
+  - a run dir keeps its setting: G3's dirs (shards, no `.dedup`) resume with 0 and refuse 2.
+  - `bash -n` passes on `eval_gpu.slurm`, and `run_eval.py` compiles (its `run_meta.json` gains `proxy_dedup`).
+- **[submit_loops.sh](submit_loops.sh): 83 cases,** against the stubs of G3's tests and a fake scratch tree. G3's 52 cases still pass unchanged.
+  - The new cases on G3's arms: every G3 arm gets `DEDUP=0` explicitly, since sbatch exports the login shell's environment, and its report dir has no `g4_` tag.
+  - The dedup arm:
+    - `STEPS="dedup report"` queues 2 chained A100 jobs (ctrl's zip, `DEDUP=2`, the model's template) and the report;
+    - the report pools both of G3's control passes, which already exist, with dedup's pass 1, adds `dedup:ctrl dedup:block`, and goes into `report_g4_p1_<time>`;
+    - `PASS=2` gives the `_r2` run, and a later `STEPS=report` includes dedup once its run exists;
+    - `DEDUP_RUN`, and the refusals: `DEDUP_RUN` 0, 1 or `x`, a main checkout without `DEDUP` (in `eval_gpu.slurm` or `token_proxy.py`), another zip in `arms.tsv`, and the QoS limit.
+  - The smoke step:
+    - one 45-min A100 job on the 4 ids into `loops_dedup_smoke_v31_a100`, with no report and no dependencies;
+    - the check command it prints, and `SMOKE_TIME`;
+    - refused without its 4 ids or the main track's `DEDUP`; it counts against the QoS limit.
+- **[loop_report.py](loop_report.py): 31 unit checks** (G3's 21, and 10 new):
+  - hazard counts by k, and clean steps (a budget warning or a shorter next prompt makes a step dirty);
+  - steps after a malformed call are left out, the k labels, and `dedup_min`;
+  - a synthetic dedup run: 25 real G3 tasks, with the `calls.jsonl` the proxy would have written for them. Its provenance says `runs>=2`, and the proxy table finds 149 expected and 149 seen.
+- **The full report on G3's seven runs:**
+  - every number of the old report is unchanged; only the provenance table gains its dedup column;
+  - the new lock-in tables equal G3's local split: `ctrl` clean 1.000 at 5–9 (290) and 10+ (1,052), and `ctrl_t1` − `ctrl` at k = 2 −16.6 (−34.5 to −2.1);
+  - it parses as Python 3.9, and the login node's `python3` (3.9.25) imports its modules.
+- **[../baseline/baseline_report.py](../baseline/baseline_report.py)** reads the new `arms.tsv` row: `dedup` shows "no runs yet", with `ctrl` as its reference.
+- **A prior from G2's files** (the selection-only curve in §3's G4): 56 copy states, dedup p(c) at the run's sampling.
+- **Not run:**
+  - the eval jobs;
+  - a real ADK request through the proxy, which the smoke test covers;
   - anything with Explorer's paths.
