@@ -1,8 +1,8 @@
 # ablation/ablation_G1.md: the dose test (round 2's G1)
 
 <!-- moved from loops/ on 2026-10-17. File names without a folder below (README.md, loops_reason_10_13.md, dose.py,
-     dose.md, ...) are in ../loops/ or in the work dir; the links point there. The recap of every ablation is
-     ablation_recap_10_17.html. -->
+     dose.md, ...) are in ../loops/ or in the work dir; the links point there. The recap of round 1, G1, G2 and G3 is
+     ablation_recap_10_17_legacy.html (legacy since 2026-10-20); every round's findings are in ../findings.md. -->
 
 <!-- copied on 2026-10-15 from README.md §3 (G1) and from loops_reason_10_13.md (§1's dose-test block, and G1's notes in
      §2-§4, §7 and §8), as written on 2026-10-13 and 2026-10-14. Both files keep their text; this copy puts G1's

@@ -11,7 +11,7 @@
      paired intervals (20,000 task resamples), the always-block table, the seed count and the fastapi_12942 traces. That
      script sits in a session scratchpad, not in this repo; so do the 10-12 checks behind the stuck-stretch counts.
      The citations were checked against the primary texts on 2026-10-13.
-     loop_illustration.html's "Why loops happen" section still has the wording from before this revision.
+     loop_illustration_legacy.html's "Why loops happen" section still has the wording from before this revision.
      Updated 2026-10-14 with round 2's G1, the dose test (the summary table, sections 1-4, 7 and 8), from
      $R/paper/loops/dose_baseline_nothink_args_v30_zip (dose.md, score.jsonl, samples.jsonl, states.jsonl). The
      exact probabilities, the spread and the splits come from a local analysis of those files in a session
@@ -29,7 +29,7 @@
 | Onset | Loops start at searches that come back empty, then get re-sent unchanged. | Seen in our traces |
 | No escape | Spontaneous thinking often skips looping states where a forced thought helps. | Measured here (T-open), one step ahead |
 
-**Terms** follow [loop_illustration.html](loop_illustration.html), "Terms used on this page", with lock-in and the replay's probability stated more exactly:
+**Terms** follow [loop_illustration_legacy.html](loop_illustration_legacy.html), "Terms used on this page", with lock-in and the replay's probability stated more exactly:
 - a *copy* repeats the call just before;
 - a *stale repeat* is any call identical to an earlier one, with no successful `edit_file` or `write_file` in between. It stands in for a repeat that can't teach anything, and it misses edits made through `run_command` (§4);
 - *lock-in after k* is P(the next call is one more copy | the current run of identical calls has length k). At k = 1 the last call differs from the one before it; k = 3+ pools every run of 3 or more;
@@ -356,7 +356,7 @@ Each lever we tested is meant to change one part of it, and changes more. The nu
   - how much of the observed curve is selection of sticky histories (G1 shows only that the copies' own effect is far smaller);
   - the repeated result as the copy cue, against format conditioning (G2). G1 shows the call has to recur too;
   - the A/B alternation as a copied pattern;
-  - conversational inertia behind the drift of the self-written empty thought (the compaction test in loop_illustration.html, open question 2).
+  - conversational inertia behind the drift of the self-written empty thought (the compaction test in loop_illustration_legacy.html, open question 2).
 - **Not measured yet:**
   - what escapes lead to;
   - any lever's benefit over whole tasks;

@@ -1,8 +1,8 @@
 # ablation/ablation_G2.md: the feedback factorial (round 2's G2)
 
 <!-- moved from loops/ on 2026-10-17. File names without a folder below (README.md, loops_reason_10_13.md, feedback.py,
-     loop_report.py, ...) are in ../loops/ or in the work dir; the links point there. The recap of every ablation is
-     ablation_recap_10_17.html. -->
+     loop_report.py, ...) are in ../loops/ or in the work dir; the links point there. The recap of round 1, G1, G2 and G3 is
+     ablation_recap_10_17_legacy.html (legacy since 2026-10-20); every round's findings are in ../findings.md. -->
 
 <!-- written 2026-10-15 from $R/paper/loops/fb_baseline_nothink_args_v30_zip (feedback.md, feedback.json, prep.md,
      states.jsonl, score.jsonl, samples.jsonl). The tables of §3 and §4 are feedback.md's. The split into copies and
@@ -11,6 +11,11 @@
      10,000 times (seed 0), as feedback.md does. The design is in README.md §3 (G2), the code in feedback.py. G1's record
      is ablation_G1.md. -->
 
+<!-- corrected 2026-10-20 after G4 (ablation_G4.md §7.8): G2's dedup deletes every earlier copy of c, also copies sent
+     before the run, so at 44 of the 56 copy states it built a history the agent never had. The summary, §2, §6.4, §6.6,
+     §6.7 and §8 say so now; the split comes from the same local analysis of this work dir's files (10,000 resamples of
+     tasks, seed 0). The tables of §3–§5 are unchanged: they measure G2's dedup as it ran. -->
+
 **The question:** is the copy cued by the repeated result's surface form, or by what the result means? G1 re-spelled the call and kept the result. G2 keeps every call and changes how the results are rendered, at fixed histories, one step ahead.
 
 **The answer: neither.**
@@ -18,7 +23,7 @@
 - **Meaning:** a faithful note, "The search completed and found zero matches for this pattern in these paths.", changes it by +0.020 (+0.005 to +0.036). That is a little *more* copying, and 5 points fewer sampled escapes.
 - **The added tokens by themselves** (placebo − orig): −0.004 (−0.012 to +0.003).
 - **What moves the copy is in the history.**
-  - Deleting c's earlier copies (`dedup`) takes p(c) from 0.469 to 0.063.
+  - Deleting c's earlier copies (`dedup`) takes p(c) from 0.469 to 0.063. But `dedup` deletes every earlier copy, also those sent before the run, and at 44 of the 56 copy states c had been sent before the run too. There it builds a history the agent never had (§6.6, corrected 2026-10-20 after G4). Over whole tasks, deleting only the run doesn't cut loops ([ablation_G4.md](ablation_G4.md)).
   - Ending the context with the empty thought (`block`) takes it to 0.152.
   - With the empty thought before every earlier call as well (`think_all`), p(c) is back at 0.472.
 - **Nearly all of it happens at the 56 copy states,** where c was also the call before. The 45 returns, where c comes back after other calls, cycle over several stale calls, and p(c) there barely moves.
@@ -46,6 +51,7 @@
 - **Results and copies:** 74 states are `err_silent` (exit 1) and 27 `ok_empty` (exit 0). c has 2 copies in the context in 45 states, 3–4 in 9, and 5 or more in 47.
 - **Copies and returns:**
   - **copies** (c was also the call before): 56 states in 18 tasks, 44 of them with 5 or more copies. The student copied next in 52.
+    - In 44 of them (17 tasks), c had also been sent before the run, a median of 2 times; their runs are long (median 12 calls). In the other 12 (6 tasks), c occurs only in the run, and 8 of those runs are 2 calls long (added 2026-10-20, §6.6).
   - **returns** (c comes back after other calls): 45 states in 21 tasks, 38 of them with 2 copies. The student's next call was another stale call in 23, a copy in 12 and a fresh call in 10.
   - 16 tasks have both kinds. `feedback.md` splits them at the run's sampling only; §5 has the rest.
 
@@ -148,13 +154,16 @@ Paired contrasts, with 95% intervals over tasks (18 for copies, 21 for returns):
 **4. Dedup and the block do different things with the copies.**
 - **The block** turns many copies into other stale calls (+0.33), with few escapes (+0.10). That is the one-step version of the always-block run's fragmentation (loops_reason_10_13.md §1): runs broke up, more started, and resolution didn't move.
 - **Dedup** turns them into escapes: +0.41, and +0.31 over the block.
+- **Corrected 2026-10-20:** dedup's escapes come mostly from the 44 copy states where it also deleted the calls sent before the run (+0.42 there, +0.36 at the 12 others, −0.07 to +0.71). Collapsing only the run, over whole tasks, ends more short runs but cuts no loops ([ablation_G4.md](ablation_G4.md) §5.2).
 
 **5. Returns are another regime.**
 - At returns the model cycles over several stale calls: in orig's samples, c 0.30 and other stale calls 0.50.
 - p(c) is low and barely moves. Still, `dedup`, `block` and `think_all` each raise sampled escapes, by 0.18–0.26.
 - Measure returns by the stale share, not by p(c).
 
-**6. Selection, measured.**
+**6. Selection, measured (corrected 2026-10-20 after G4).**
+
+*As written on 2026-10-15, superseded:*
 - Dedup turns a copy state back into roughly the state where its run began: c once, after the same history.
 - There p(c) is already 0.074 exact (0.291 at the run's sampling), against 0.009 (0.024) at first failures.
 - The differences are +0.065 (+0.026 to +0.104) exact and +0.267 (+0.077 to +0.446) at the run's sampling, resampling tasks within each set.
@@ -169,10 +178,25 @@ Paired contrasts, with 95% intervals over tasks (18 for copies, 21 for returns):
 - The populations and the numbers of copies differ, so the comparison is rough.
 - Still, neither half reaches the closed-loop curve alone. Runs begin where the model already leans towards c, and the copies then lock it in. This is G1's "the curve also reflects which histories loop", now with a size.
 
+*The correction:*
+- **The first bullet holds only where c occurs only in the run.** `dedup` (`gate1.dedup`) deletes every earlier copy of c anywhere in the context and keeps the latest. In 44 of the 56 copy states, c had also been sent before the run (a median of 2 times), so `dedup` deleted those calls and their results as well. That history never existed: the agent saw c's earlier results when its run began.
+- **Split by that** (exact p(c) / at the run's sampling / sampled c, other stale, escape):
+
+| Copy states | orig | dedup | dedup − orig, exact | dedup − orig, sampled escape |
+|---|---|---|---|---|
+| c also before the run (44, 17 tasks) | 0.898 / 1.001 / 1.00, 0.00, 0.00 | 0.071 / 0.262 / 0.25, 0.33, 0.42 | −0.827 (−0.878 to −0.766) | +0.417 (+0.220 to +0.639) |
+| c only in the run (12, 6 tasks) | 0.398 / 0.573 / 0.61, 0.25, 0.14 | 0.084 / 0.401 / 0.42, 0.08, 0.50 | −0.314 (−0.537 to −0.001) | +0.361 (−0.067 to +0.714) |
+
+- **The two groups also differ in run length:** the 44 have a median run of 12 calls, and 8 of the 12 clean states come from runs of 2. The split can't separate "c before the run" from "a long run".
+- **So the 0.074 is not the state where runs began.** Only the 12 clean states measure that, and there `dedup` at the run's sampling is 0.40 (0.14 to 0.71).
+- **The closed loop measured it directly** ([ablation_G4.md](ablation_G4.md) §5.1). G4's proxy collapses only the run, so the request at every step of a run is the one the agent saw after the run's first call. On clean steps, the agent sent the call again 78% of the time after its first copy and 99% by the 10th. The control's curve is 68%, 96%, 100% and 100%.
+- **The conclusion now rests on G4, and it is stronger:** most of the lock-in curve's height is selection. Runs begin where the model is already close to certain of c, and the copies close the remaining escapes. The comparison table above stays as a record; its "states where a run began" row is wrong.
+
 **7. The copies also suppress the model's own empty thought.**
 - At copy states the model opens it 11% of the time; with the copies deleted, 58% (+0.46). At returns the two rates are 43% and 49%.
 - Round 1 found that spontaneous thinking skips looping states (loops_reason_10_13.md §5). Skipping may be part of the copied pattern, since the earlier copies went straight to the call.
 - This is the thinking-off empty thought, while T-think ran with thinking on. So it is a lead, not a test.
+- **Corrected 2026-10-20:** the +0.46 comes from the 44 states where `dedup` also deleted the calls sent before the run (+0.58 there; +0.03 at the 12 clean states, where the model already opens it 44% of the time). G4's closed loop, which collapses only the run, replicates the direction: inside runs the model opens the empty thought at 60–84% of steps, against 6% in the control, and always leaves it empty. It doesn't stop the copy ([ablation_G4.md](ablation_G4.md) §5.5).
 
 **8. The replay reproduces the runs.**
 - Mean p(c) at the run's sampling is 0.639, and the sampled copies come to 0.644. The recorded copy rate is 0.634 (64 of 101).
@@ -198,5 +222,6 @@ Paired contrasts, with 95% intervals over tasks (18 for copies, 21 for returns):
   - Proposed for its slot, not decided: a closed-loop `dedup` arm against v31's `ctrl`, collapsing consecutive identical call/result pairs.
   - It is the strongest one-step lever, and the one that turns copies into escapes.
   - A chat template may be able to carry it, as it carried the always-block; check that first.
+  - **Ran 2026-10-19/20** as that arm, through the main track's token proxy rather than a chat template, two passes: it cut no loops and left resolution at 73 against 72 of 218 ([ablation_G4.md](ablation_G4.md)). Part of the reason is §6.6's correction: the one-step effect came mostly from states where `dedup` deleted calls sent before the run.
 - **G3** is unchanged. Add the copy/return split to [loop_report.py](../loops/loop_report.py), and measure cycles by the stale share.
 - **A cheap follow-up, not built:** the missing cell of the thought 2 × 2, with the empty thought before every past call but not at the end. If the match reading holds, the model writes the empty thought itself and copies through it.

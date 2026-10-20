@@ -6,8 +6,9 @@
      loop, costs) come from local analyses of copied traces in session scratchpads, not in this repo; they resample
      tasks 2,000 times (seed 0), as loop_report.py does, except §5.7 (10,000). §5.6's exit table and §5.7 were added on
      2026-10-19. The design and the predictions, written before the run, are in ../loops/README.md §3 (G3). File names
-     without a folder below (README.md, loop_report.py, submit_loops.sh, ...) are in ../loops/. The recap of every
-     ablation is ablation_recap_10_17.html; G1's and G2's records are ablation_G1.md and ablation_G2.md. -->
+     without a folder below (README.md, loop_report.py, submit_loops.sh, ...) are in ../loops/. The recap of round 1,
+     G1, G2 and G3 is ablation_recap_10_17_legacy.html (legacy since 2026-10-20); G1's, G2's and G4's records are
+     ablation_G1.md, ablation_G2.md and ablation_G4.md, and every round's findings are in ../findings.md. -->
 
 **The question:** G1 and G2 look one step ahead. G3 runs whole tasks to ask two things. Does lock-in survive Google's T = 1, or is it an artifact of sampling at 0.2? And do round 1's always-block results replicate on the v31 serving stack?
 
@@ -341,10 +342,11 @@ Written in README.md §3 before the run.
   - Round 1's result line ("Result (2026-10-12)") and loops_reason_10_13.md §1 keep their v30 text, each with a note that v31 supersedes it.
 - **loops_reason_10_13.md §3's temperature argument** can now cite §5.1: lock-in at T = 1, measured in the closed loop. Not yet edited.
 - **G4:** G2 failed G4's condition. G3 adds that exits come only from changes to the context, and that compactions make them by accident (§5.2) but are often followed by re-entry (§5.6).
-  - The proposal for G4's slot stands: a closed-loop dedup arm against v31's `ctrl`, two passes, about 3 A100-hours (ablation_G2.md §8; ablation_recap_10_17.html, "What we would try next").
+  - The proposal for G4's slot stands: a closed-loop dedup arm against v31's `ctrl`, two passes, about 3 A100-hours (ablation_G2.md §8; ablation_recap_10_17_legacy.html, "What we would try next").
   - Measure it by stale share, re-entry and what the freed calls buy, before resolution.
   - §5.3 and §5.7 set the prior: fewer loops, little change in tasks solved.
   - Not decided.
+  - **Ran 2026-10-19/20** as that arm, two passes: no fewer loops, and 73 against 72 of 218 solved ([ablation_G4.md](ablation_G4.md)).
 - **For the paper:**
   - T = 1 is the judges' expected arm (literature.md). Its answer is "fewer loops start, they still lock in, and resolution doesn't move".
   - Report the hazard by run length (§5.1) and the clean-step exits (§5.2), not the pooled lock-in at 3+, which is weighted by survivors.
