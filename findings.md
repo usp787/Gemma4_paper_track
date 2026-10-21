@@ -6,7 +6,9 @@
      and the round-2 plan), loops/loops_reason_10_13.md (the mechanisms and the review), gate1/README.md (Gate 1 and
      the replay) and loops/literature.md (prior work, with checked references). Intervals are 95%, from resampling
      tasks. The legacy explainers, loops/loop_illustration_legacy.html and ablation/ablation_recap_10_17_legacy.html,
-     predate G3's record and G4 and keep their older wording. -->
+     predate G3's record and G4 and keep their older wording. Updated 2026-10-21: the 12B control
+     (ablation/ablation_control.md), added after the freeze as a generality check: finding 10, §2.10, and size notes
+     in §1 and §2.1, §2.4, §2.8, §5–§8. With it every arm has run. -->
 
 **The question:** why does Gemma 4 31B, with thinking off, send the same tool call again and again on a coding task, and what breaks the loop?
 
@@ -15,19 +17,21 @@
 - T = 0.2, top-p 0.95, top-k 64; 4 minutes, 60 tool calls and 100 turns per task;
 - 109 tasks from four repositories (70 dev-sound: fastapi, requests, httpx; 39 rich-sound: rich);
 - the closed-loop runs on wheelhouse v31, one A100, 4 tasks at once;
-- the one-step replays score recorded v30 histories.
+- the one-step replays score recorded v30 histories;
+- the 12B control's numbers (§2.10 and the size notes) say so: the same setting with Gemma 4 12B (int4, w4a16) in the 31B's place.
 
 ## 1. The findings
 
-1. **Loops are common, and they mark lost runs.** A quarter of task runs are loop tasks, with half or more of their calls stale or malformed. Loop task runs resolve 20% of the time, against 37% for the rest.
+1. **Loops are common, and they mark lost runs.** A quarter of task runs are loop tasks, with half or more of their calls stale or malformed. Loop task runs resolve 20% of the time, against 37% for the rest. At 12B loops are commoner still (44.5% of task runs), and they mark lost runs only in direction (8% against 13%).
 2. **Loops start where the model is already close to certain of the call.** With the request held the same at every step of a run, the agent sends the call again 78% of the time after its first copy and 99% by the 10th. So most of the lock-in curve's height is selection.
 3. **The copies in view reinforce the loop on their exact tokens, and close its last escapes.** At fixed histories, identical copies raise the next copy (0.002 → 0.43 for 1 → 4 copies) and re-spelled ones don't. In the closed loop, the copies take the hazard from 87–93% to 96–100% at 3–9 identical calls.
-4. **At T = 0.2, long runs end only from outside.** After 5 identical calls, the control never stopped on a clean step (1,342 of 1,342). Its long runs ended at the budget warning, a context compaction, or the task's end.
+4. **At T = 0.2, long runs end only from outside.** After 5 identical calls, the control never stopped on a clean step (1,342 of 1,342). Its long runs ended at the budget warning, a context compaction, or the task's end. The 12B's do too: 4 of its 119 runs of 10+ end on their own.
 5. **The pattern of the context drives the copy, not what the results say.** Varying IDs or adding a faithful "zero matches" note leaves the copy where it was. An instruction moves it, and so does breaking the pattern before the call.
 6. **The model skips thinking where a thought would help.** Where it chose not to think, a forced thought escapes 58% of the time, against 11%, one step ahead.
 7. **Every whole-task lever changes the loops, not the outcome.** T = 1 halves how many loops start; the always-block template fragments them; dedup lets short runs end. Resolution stays at 71–73 of 218 (38 of 109 for the block's single pass).
-8. **At T = 0.2, which tasks loop is a property of the task,** with or without the copies in view. At T = 1 it isn't.
+8. **At T = 0.2, which tasks loop is a property of the task,** with or without the copies in view. At T = 1 it isn't. Across sizes it carries over only in part.
 9. **The self-teacher shares the loop,** which is why the study left OPSD: Gate 1's thinking teacher put less KL on the failure tokens than on routine ones (ratio 0.51).
+10. **Size changes how often loops start, not how firmly they hold.** Once a copy has been sent, Gemma 4 12B continues at the 31B's rates. It starts copying 2.4 times as often after a fresh call, so it loops more and resolves less; loops explain little of that gap.
 
 In one sentence: the loop is a symptom of a state the model is already sure about, and it is held in place by its own copies; removing the loop doesn't recover the task.
 
@@ -44,6 +48,10 @@ Status: *measured* means a controlled manipulation; *observed* means a pattern i
   - loop task runs resolve 20%, against 37% (§5.3 there);
   - within the 20 sometimes-solved tasks that have both kinds of run, the looping runs resolve 22.8 points less often (−41.1 to −4.3, §5.7 there);
   - in 23 of 24 un-looped tasks, the loop began before the first source edit (§5.3 there).
+- **At 12B** ([ablation_control.md](ablation/ablation_control.md) §3, §5.8):
+  - loops are commoner: 53.4% of calls are stale, 39.5% copies, and 44.5% of task runs are loop tasks;
+  - the loops are on other calls: no malformed runs, but failing edits and truncated reads (search 74, command 58, read 34, edit 26);
+  - they mark lost runs only in direction: 8% against 13% (+5.0, −3.0 to +13.3). The 12B resolves only 13% of the runs where it doesn't loop, so the contrast has little room.
 - **Caveat:** this is a correlation. A run that is already lost may loop for that reason. §2.7 shows that removing loops doesn't recover runs.
 
 ### 2.2 Loops start where the model is already close to certain (measured, closed loop)
@@ -80,6 +88,9 @@ Status: *measured* means a controlled manipulation; *observed* means a pattern i
 - The 58 well-formed runs of 10+ ended after the budget warning ("Only 10 tool call(s) remaining …") 43 times, at a compaction 14 times, at the task's end once, and on a clean step never (§5.2 there).
 - **The exits barely help.** After the budget warning at most 10 calls are left. After a compaction, the agent sends the same call again 30–41% of the time (§5.6 there).
 - **Under dedup** the long runs end the same way: 31 of 54 at the budget warning, 15 with the task (ablation_G4.md §5.2).
+- **At 12B** too (ablation_control.md §5.1–5.2):
+  - 4 of its 119 runs of 10+ end on their own, and 11 of its 2,377 clean steps at k ≥ 5 end a run (0.5%, against 0 of 1,342);
+  - the budget warning stops fewer of them: 51 of 81 warned long runs end before the task, against 43 of 44. The other 30 run into the 60-call cap or the timeout.
 
 ### 2.5 The pattern of the context drives the copy, not the results' content (measured, one step ahead)
 
@@ -126,6 +137,11 @@ Status: *measured* means a controlled manipulation; *observed* means a pattern i
 - They rarely loop on the same call (2 of 15), and two passes diverge after a median of 3 calls (ablation_G3.md §5.4).
 - At T = 1 the two passes share no loop task.
 - Loops are as common in sometimes-solved tasks as in never-solved ones (24–26% of task runs), and rare in tasks every run solves (6.5%; ablation_G3.md §5.7).
+- **Across sizes, only in part** (ablation_control.md §5.5):
+  - a 31B pass and a 12B pass share 16–19 loop tasks, against 13.4–14.2 by chance within split (p = 0.015);
+  - 14 of the 15 tasks that loop in both 31B passes loop in at least one 12B pass;
+  - 13 tasks loop in both 12B passes and in neither 31B pass.
+  - Within the 12B, two passes agree as much as the 31B's do (Jaccard 0.41 against 0.38).
 
 ### 2.9 The OPSD link: the self-teacher shares the loop (measured, Gate 1)
 
@@ -134,6 +150,27 @@ Status: *measured* means a controlled manipulation; *observed* means a pattern i
   - The forced-empty-thought teacher (C-none) passed (2.82, 1.08 to 9.41). Its effect came from the forced empty thought, not from the thinking-on template.
 - At 3rd-or-later copies, T-think's copy probability is 0.80: a self-teacher that thinks only when it chooses shares the student's loop.
 - **Why no training was run:** the trainer had cross-entropy only, RFT round 0 went from 23 to 8 of 70, and G4, the gate for exit distillation, gained no tasks ([opsd_assessment.md](opsd_assessment.md), loops/README.md §3).
+
+### 2.10 Size changes the onset, not the lock-in (observed, closed loop, two sizes)
+
+- **The test** ([ablation_control.md](ablation/ablation_control.md)): two passes of `ctrl` with only the zip's two `model:` lines changed to Gemma 4 12B, against the 31B's two passes. Same harness, vLLM build, sampling, budget and 109 tasks.
+
+| P(one more identical call), clean steps | k = 1 | k = 2 | k = 3–4 | k = 5–9 | k = 10+ |
+|---|---|---|---|---|---|
+| Gemma 4 31B (`ctrl`, 2 passes) | 0.024 (4,985) | 0.678 (115) | 0.958 (142) | 1.000 (290) | 1.000 (1,052) |
+| Gemma 4 12B (`ctrl_12b`, 2 passes) | 0.058 (4,487) | 0.687 (243) | 0.950 (302) | 0.990 (572) | 0.997 (1,805) |
+
+- **Paired, all steps:** +3.2 points at k = 1 (+2.2 to +4.2). From k = 2 on, no difference's interval excludes 0 (k = 2: −4.2, −22.0 to +13.1).
+- **So the 12B starts more runs and holds them as firmly:**
+  - runs of 3+ per task 0.88 against 0.53, and of 10+ 0.55 against 0.33;
+  - calls inside runs of 3+, +6.8 per task (+3.2 to +10.4), about all of its +6.3 extra calls;
+  - run length (19.7 against 19.8) and lock-in at 3+ (95.6% against 94.8%) don't differ.
+- **The broken call that loops differs by size.** The 31B loops on malformed calls (26 runs). The 12B writes almost none (0.2% of calls). It loops on edits that can't apply: 25 of its 26 edit runs return `FileEditError` at every call, and 586 of its 804 edit calls fail, against 46 of 489. In both sizes the error comes back and the copy goes on (observed; G2 measured the cue at 31B only).
+- **Resolution:** 24 of 218 against 72 (−22.0 points, −29.8 to −15.1). The 12B solves 16 tasks at least once, 15 of them also the 31B's. At its non-loop rate, its loop task runs would add about 5 of the 48: the gap is mostly elsewhere (fewer edits tried, most of them failing, 86 task runs at the call cap).
+- **Reading, with §2.2:** if the curve's height is selection of states where the model is near certain of the call, the 12B reaches such states more often and is as certain in them. Selection wasn't measured at 12B.
+- **Caveats:**
+  - **The same bytes are not the same agent.** The 12B calls the analyzer sub-agent (68 and 75 times; the 31B never does). The sub-agent's calls count toward the 60-call cap, and 26 of 68 and 30 of 75 of its invocations end on its own context window. The loop metrics count the main agent's calls only.
+  - Closed loop only: no 12B replay states and no 12B dedup arm, so §2.2, §2.3, §2.5 and §2.6 stay the 31B's.
 
 ## 3. Every lever, one step ahead and over whole tasks
 
@@ -162,7 +199,9 @@ Status: *measured* means a controlled manipulation; *observed* means a pattern i
 
 ## 5. What the study can't claim
 
-- **Generality.** One model (Gemma 4 31B, int4), thinking off, one harness, four repositories and 109 tasks. A 12B control pass is still open (§7).
+- **Generality.** Two sizes of one family (Gemma 4 31B and 12B, int4), thinking off, one harness, four repositories and 109 tasks.
+  - The 12B tests the descriptive claims only (§2.1, §2.4, §2.8, §2.10). The measured mechanisms (§2.2, §2.3, §2.5, §2.6) and the levers (§2.7) are the 31B's.
+  - No other family, no smaller Gemma 4 (E4B, E2B), and no thinking-on comparison at either size.
 - **Small effects on resolution.** Changes of 1–2 tasks can't be detected, and an inconclusive difference is not equivalence.
 - **The forced thought over whole tasks.** T-open's 47 points are one step ahead; no closed-loop arm forced thoughts.
 - **Calibrated confidence.** The replay measures the probability of the recorded call; the closed loop measures re-draws. Neither is calibration.
@@ -183,18 +222,21 @@ From [loops/literature.md](loops/literature.md), which has the checked reference
   - how loops end: exogenous at T = 0.2 (G3);
   - levers compared at the same states one step ahead, and over whole tasks;
   - temperature in the closed loop, at Google's T = 1 (G3);
-  - "loops mark lost runs, and un-looping doesn't recover them", with three levers.
+  - "loops mark lost runs, and un-looping doesn't recover them", with three levers;
+  - the same lock-in curve at two sizes of one family, with only the onset moving (§2.10). SWE-smith reports a weaker model looping far more (runs of 10+ in over 25% of its 32B model's trajectories, under 4% for Claude 3.7); here the weaker model's excess is in how often runs start, not in how firmly they hold.
 - **Liu's p(3rd identical action | 2)** is 37% pooled; ours (the k = 2 hazard) is 68% in the control. Report ours under Liu's definition, and note the different models, environments and screening.
 
 ## 7. Open
 
-- **The 12B control** (generality): two passes of `ctrl` on Gemma 4 12B, drafted and tested locally on 2026-10-20, not yet run. Its design, predictions and commands are in [loops/README.md](loops/README.md) §3, "The 12B control". No 12B run with thinking off exists yet.
-- **Not planned, as limitations:** a forced-thought closed-loop arm; Gate 1's dedup re-split; G2's missing thought cell; other wordings and temperatures.
+- **Done:** the 12B control (generality), two passes of `ctrl` on Gemma 4 12B, run on 2026-10-20/21 ([ablation/ablation_control.md](ablation/ablation_control.md), §2.10). With it every arm has run, and the experiment round ended on 2026-10-21.
+- **Not planned, as limitations:**
+  - a forced-thought closed-loop arm; Gate 1's dedup re-split; G2's missing thought cell; other wordings and temperatures;
+  - from the 12B control: selection at 12B (a 12B dedup arm), the analyzer sub-agent's effect, and why the budget warning stops fewer of the 12B's runs.
 - **Docs not yet synced with G3/G4:**
   - loops_reason_10_13.md's principles table and §3;
   - literature.md's novelty row (c), which quotes dedup 0.14;
   - the two legacy HTML explainers.
-- **The paper:** 3,000 words, due 2026-11-12 23:59 UTC. Figures should come from the report files (§8), not from this summary.
+- **The paper:** 3,000 words, due 2026-11-12 23:59 UTC. Figures should come from the report files (§8), not from this summary. The outline and figure list come first, in a planning session started from [paper/outline_prompt.md](paper/outline_prompt.md).
 
 ## 8. Where everything is
 
@@ -205,6 +247,7 @@ From [loops/literature.md](loops/literature.md), which has the checked reference
 | G2, the feedback factorial | [ablation/ablation_G2.md](ablation/ablation_G2.md); `$R/paper/loops/fb_baseline_nothink_args_v30_zip/` |
 | G3, temperature and replication | [ablation/ablation_G3.md](ablation/ablation_G3.md); `$R/paper/loops/report_p2_1016-1640/` |
 | G4, dedup over whole tasks | [ablation/ablation_G4.md](ablation/ablation_G4.md); `$R/paper/loops/report_g4_p2_1019-2337/` |
+| The 12B control (generality) | [ablation/ablation_control.md](ablation/ablation_control.md); `$R/paper/loops/report_12b_p2_1020-2212/` (pools both 12B passes with every arm) |
 | The mechanisms, the math and the review | [loops/loops_reason_10_13.md](loops/loops_reason_10_13.md) |
 | Prior work | [loops/literature.md](loops/literature.md) |
 | The design of round 2, its predictions and tests | [loops/README.md](loops/README.md) §3 and the "Tested" sections |

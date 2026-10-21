@@ -1,6 +1,6 @@
 # loops/: the loop study
 
-<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17_legacy.html). Updated 2026-10-19: G3's result and record (ablation_G3.md); the always-block claim now uses v31's result; G4 drafted as the dedup arm (section 3). Updated 2026-10-20: G4's result and record (ablation_G4.md); G2's record corrected after G4; the experiments frozen and A0 dropped; every round's findings in ../findings.md; loop_illustration.html renamed loop_illustration_legacy.html, and the recap ablation_recap_10_17_legacy.html, both legacy. Later on 2026-10-20: the 12B control drafted, two passes of ctrl on Gemma 4 12B (section 3). -->
+<!-- written 2026-10-12, when the paper was re-scoped from OPSD to the loop behaviour itself (proposed, not decided). Numbers from Gate 1's first run (gate1_baseline_nothink_args_v30_zip) and off_args's v30 runs. Updated 2026-10-13: round 1's results, and round 2's plan (section 3). Updated 2026-10-14: G1's result, and G2 drafted (section 3). Updated 2026-10-15: G2's result; G1's and G2's records are in ablation_G1.md and ablation_G2.md (moved to ../ablation/ on 2026-10-17, with the recap of every ablation, ablation_recap_10_17_legacy.html). Updated 2026-10-19: G3's result and record (ablation_G3.md); the always-block claim now uses v31's result; G4 drafted as the dedup arm (section 3). Updated 2026-10-20: G4's result and record (ablation_G4.md); G2's record corrected after G4; the experiments frozen and A0 dropped; every round's findings in ../findings.md; loop_illustration.html renamed loop_illustration_legacy.html, and the recap ablation_recap_10_17_legacy.html, both legacy. Later on 2026-10-20: the 12B control drafted, two passes of ctrl on Gemma 4 12B (section 3). Updated 2026-10-21: the 12B control's result and record (ablation_control.md); every arm has now run, and the paper outline starts next. -->
 
 **The question:** why does Gemma 4 31B, with thinking off, re-send the same tool call in a loop, and what breaks the loop?
 
@@ -11,6 +11,7 @@
 - Lock-in is partly self-reinforcement (round 2's G1, 2026-10-14). At fixed histories, identical copies raise the next copy: p(c) is 0.002, 0.098 and 0.434 for 1, 2 and 4 copies, while re-spelled copies of the same search stay near 0.03. But four forced copies give 43%, while in the closed loop a run of three or more gets one more copy 96% of the time. So the observed curve also reflects which histories loop.
 - The results' content doesn't cue the copy (round 2's G2, 2026-10-15). Varying IDs and a faithful "zero matches" note leave p(c) where it was. Deleting the earlier copies (dedup) or ending the context unlike them (the block) cuts it. With the empty thought before every earlier call too, the copy comes back in full, so the block works as a pattern break ([ablation_G2.md](../ablation/ablation_G2.md)). G2's dedup also deleted calls sent before the run, at 44 of its 56 copy states, so its one-step effect is mostly that (corrected 2026-10-20, ablation_G2.md §6.6).
 - Deleting the copies over whole tasks cuts no loops (round 2's G4, 2026-10-19/20, [ablation_G4.md](../ablation/ablation_G4.md)). With the request held the same at every step of a run, the agent sends the call again 78% of the time after its first copy and 99% by the 10th, against the control's 68% and 100%. So most of the lock-in curve is selection: runs start where the model is already close to certain, and the visible copies close the remaining escapes. Resolution: 73 against 72 of 218.
+- The lock-in is Gemma 4's, not only the 31B's (the 12B control, 2026-10-20/21, [ablation_control.md](../ablation/ablation_control.md)). Once a copy has been sent, the 12B continues at the 31B's rates (clean steps: 0.69, 0.95, 0.99 and 0.997 at k = 2, 3–4, 5–9 and 10+), and 4 of its 119 runs of 10+ end on their own. What changes with size is the onset: the 12B starts copying 2.4 times as often (5.8% against 2.4% after a fresh call), so it loops on more tasks (44.5% against 24.8%). It resolves 24 of 218, against 72, and loops explain little of that gap.
 - "A stuck agent is a confident agent" stays an interpretation. The replay measures the probability of the recorded call, not calibrated confidence. `v2`'s advisor fits it: the model calls the advisor before edits, and almost never right after a bad call.
 - Why loops happen, with the math, the caveats and the references: [loops_reason_10_13.md](loops_reason_10_13.md).
 
@@ -85,7 +86,7 @@ Run both from `~/Gemma4_paper_track` on the login node, after `git pull` there a
 
 ## 3. Round 2 (planned 2026-10-13): controlled ablations, with rollout value as a bonus
 
-G1 ran on 2026-10-14, G2 on 2026-10-15, G3 on 2026-10-15/16 and G4, the dedup arm, on 2026-10-19/20. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md), [ablation_G3.md](../ablation/ablation_G3.md) and [ablation_G4.md](../ablation/ablation_G4.md). **The experiments were frozen on 2026-10-20** (the user's call, a week before the planned freeze), and A0 with the bonus was dropped, never built. One arm was added after the freeze, as a generality check: the 12B control, two passes of `ctrl` on Gemma 4 12B, drafted and tested locally on 2026-10-20, not yet run. Every round's findings are in [../findings.md](../findings.md).
+G1 ran on 2026-10-14, G2 on 2026-10-15, G3 on 2026-10-15/16 and G4, the dedup arm, on 2026-10-19/20. Each section ends with its result; the full records are [ablation_G1.md](../ablation/ablation_G1.md), [ablation_G2.md](../ablation/ablation_G2.md), [ablation_G3.md](../ablation/ablation_G3.md) and [ablation_G4.md](../ablation/ablation_G4.md). **The experiments were frozen on 2026-10-20** (the user's call, a week before the planned freeze), and A0 with the bonus was dropped, never built. One arm was added after the freeze, as a generality check: the 12B control, two passes of `ctrl` on Gemma 4 12B, run on 2026-10-20/21 (record: [ablation_control.md](../ablation/ablation_control.md)). With it every arm has run, and the experiment round ended on 2026-10-21. Every round's findings are in [../findings.md](../findings.md).
 
 **Why:** round 1's claims rest on observational curves and on levers that change several things at once. The review in [loops_reason_10_13.md](loops_reason_10_13.md) names what is not yet isolated:
 - the lock-in curve can come from survivor selection;
@@ -356,9 +357,9 @@ Round 2 manipulates one thing at fixed histories, at a bounded scale. The paper'
 - **What the copies add:** the last escapes inside a run. Under dedup the model ends 47% of its runs of 3+ itself, against 15% (+32, +20 to +45), nearly all of them runs of 3–9. Runs of 10+ per task fall from 0.33 to 0.25 (−0.08, −0.16 to −0.01).
 - **The same tasks loop** as in the control. Inside runs, the model writes its empty thought at 60–84% of steps (`ctrl` 6%), and it doesn't stop the copy.
 
-### The 12B control (drafted 2026-10-20)
+### The 12B control (drafted 2026-10-20, run 2026-10-20/21)
 
-[submit_loops.sh](submit_loops.sh) (steps `modelzip` and `ctrl_12b`), with [make_model_zip.py](make_model_zip.py), [loops.slurm](loops.slurm) (`STEP=modelzip`), [arms.tsv](arms.tsv) and [loop_report.py](loop_report.py) (a model column). Nothing changes in the main track: `baseline/eval_gpu.slurm` already serves the 12B, with its `--hf-overrides`, whenever the zip declares it. Tested locally (the last section), not yet run.
+[submit_loops.sh](submit_loops.sh) (steps `modelzip` and `ctrl_12b`), with [make_model_zip.py](make_model_zip.py), [loops.slurm](loops.slurm) (`STEP=modelzip`), [arms.tsv](arms.tsv) and [loop_report.py](loop_report.py) (a model column). Nothing changes in the main track: `baseline/eval_gpu.slurm` already serves the 12B, with its `--hf-overrides`, whenever the zip declares it. Tested locally (the last section); both passes ran on 2026-10-20/21, and the result is at the end of this section.
 
 **Why:** generality. Every result so far comes from one model, Gemma 4 31B. One closed-loop arm can check the paper's descriptive claims on a second size:
 - lock-in rises with run length;
@@ -419,6 +420,15 @@ One-step claims would need their own replay states, so G1, G2 and G4 are not rep
 - **Compute:** about 1–1.5 A100-hours a pass, so 2–3 in all. The 31B `ctrl` took 1 h 10; the 12B decodes faster, but every task is capped at 4 minutes and 60 calls. Each job stays on one A100, under the 2-h limit.
 - **What the report adds:** `ctrl_12b`'s pooled metrics in every table G4's report has, and the pair `ctrl_12b` − `ctrl`. The provenance table gains a model column (`31b`, `12b`). It comes from `run_meta.json`, or for runs from before that file recorded the model, from the agent dirs' `model:` lines. Otherwise every number of the old report is unchanged.
 
+**Result (2026-10-21):** the shape replicates, so the descriptive claims hold for two sizes. Size changes how often loops start, not how firmly they hold. The full record, with the splits, is [ablation_control.md](../ablation/ablation_control.md).
+- **The checks pass:** both passes have all 109 tasks (pass 1: job 11269599, pass 2: 11273524, 1 h 23 and 1 h 24). The provenance is `ctrl`'s except the zip and the model. Call 1 is prefilled 100% of the time. Explorer built the same zip bytes as the local build (`b290324c906c`). The two passes agree on every pass-to-pass metric.
+- **`ctrl_12b` − `ctrl`, both passes pooled:** resolved 24 against 72 of 218 (−22.0 points, −29.8 to −15.1); stale 53.4% against 38.6% (+14.8); copies +11.5; malformed 0.2% against 5.5%; runs of 3+ per task 0.88 against 0.53; loop tasks 44.5% against 24.8%. Lock-in at 3+ (+0.8, −0.4 to +2.0) and run length (−0.1) don't differ.
+- **The predictions all hold,** two of them only in part. Loop task runs resolve less often only in direction: 8% against 13% (+5.0, −3.0 to +13.3). The loop tasks overlap the 31B's modestly: 16–19 shared against 13–14 by chance within split (p = 0.015).
+- **The lock-in curve** (clean steps, both passes): 0.058, 0.687, 0.950, 0.990 and 0.997 at k = 1, 2, 3–4, 5–9 and 10+, against `ctrl`'s 0.024, 0.678, 0.958, 1.000 and 1.000. Only the onset moves (+3.2 points at k = 1, +2.2 to +4.2). 4 of 119 runs of 10+ end on their own.
+- **What the 12B loops on:** no malformed calls. Instead it repeats edits that can't apply (25 of 26 edit runs return `FileEditError` at every call; 586 of its 804 edit calls fail, against 46 of 489) and re-sends truncated reads.
+- **Outside exits work less well.** The budget warning ends 51 of 81 warned long runs before the task (the 31B: 43 of 44), and re-entry is higher after every kind of exit (40.5% against 21.5%).
+- **A caveat on "only the model changes":** the 12B calls the analyzer sub-agent (68 and 75 times; the 31B never). The sub-agent's calls count toward the 60-call cap, and 26 of 68 and 30 of 75 of its invocations end on its own context window.
+
 ### Bonus: what makes a failed rollout useful (CPU only)
 
 **Dropped on 2026-10-20** (the user's call, at the freeze): none of it was built. The plan below stays as a record; [loops_reason_10_13.md](loops_reason_10_13.md) §9 keeps the argument.
@@ -439,7 +449,7 @@ One-step claims would need their own replay states, so G1, G2 and G4 are not rep
 
 **Out of scope for round 2:**
 - localising the mechanism to attention heads;
-- other models. A 12B `ctrl` run on v31 is the cheapest scale check, but any one-step claim would need its own replay states. (Added after the freeze, closed loop only: the 12B control above, 2026-10-20.)
+- other models. A 12B `ctrl` run on v31 is the cheapest scale check, but any one-step claim would need its own replay states. (Added after the freeze, closed loop only: the 12B control above, drafted 2026-10-20 and run 2026-10-20/21.)
 - broad grids over temperature or thinking budget;
 - sweeps over note wordings;
 - a failure-triggered thinking controller;
@@ -452,8 +462,8 @@ One-step claims would need their own replay states, so G1, G2 and G4 are not rep
 | Oct 14–16 | A0 (dropped 2026-10-20, never built); the code for G1–G3, tested locally against a fake vLLM, as in round 1 |
 | Oct 17–22 | G1–G3 runs and paired analysis |
 | Oct 23–26 | G4, only if G2 warrants it (since 2026-10-19: the dedup arm; smoke, then two passes) |
-| Oct 27 | Freeze the experiments (done on Oct 20, after G4) |
-| Oct 27–Nov 5 | Write the paper; reproducible figures and code |
+| Oct 27 | Freeze the experiments (done on Oct 20, after G4; the 12B control, added after it, ran Oct 20/21) |
+| Oct 27–Nov 5 | Write the paper; reproducible figures and code (since Oct 21: the outline and figure list start first, [../paper/outline_prompt.md](../paper/outline_prompt.md)) |
 | Nov 6–10 | Review, corrections, early submission |
 
 - Delays cut scope, not writing time.
@@ -494,6 +504,7 @@ One-step claims would need their own replay states, so G1, G2 and G4 are not rep
 | [ablation_G2.md](../ablation/ablation_G2.md) | G2's record: the run, the result, and the split into copies and returns |
 | [ablation_G3.md](../ablation/ablation_G3.md) | G3's record: both passes, the paired differences, the hazard by run length, how runs end, un-looping, and the predictions against the result |
 | [ablation_G4.md](../ablation/ablation_G4.md) | G4's record: the smoke test and both passes, the proxy's check, the lock-in curve with the request held fixed, own exits, and the predictions against the result |
+| [ablation_control.md](../ablation/ablation_control.md) | The 12B control's record: both passes, the lock-in curve at two sizes, how runs end, what the 12B loops on, the analyzer sub-agent, and the predictions against the result |
 | [loop_illustration_legacy.html](loop_illustration_legacy.html) | Round 1's illustrated explainer (2026-10-12/13); legacy since 2026-10-20, with its round-1 wording |
 | [lit_review_prompt.md](lit_review_prompt.md) | The start prompt of the literature-review session |
 
