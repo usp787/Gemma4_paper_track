@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Study Overview</title>
+<!-- written 2026-10-24 in the paper-planning round. Every number is quoted from ../findings.md or the records it
+     names; the figures are drawn by figures/make_figures.py from figures/fig_data.py. Not paper prose. -->
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f1f0ec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #6f6d68;
+  --rule: #e1e0d9;
+  --rule-2: #c3c2b7;
+  --accent: #2a78d6;
+  --accent-wash: #e6f0fb;
+  --chip-measured: #dbe8fa;
+  --chip-observed: #d6f1e6;
+  --chip-interp: #e6e2fa;
+  --chip-sketch: #fdefc8;
+  --chip-local: #fde3d6;
+  --chip-report: #e3efe0;
+  --fig-card: #fcfcfb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #242422;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --muted: #9c9a93;
+    --rule: #2c2c2a;
+    --rule-2: #383835;
+    --accent: #3987e5;
+    --accent-wash: #1b2a3d;
+    --chip-measured: #1d3150;
+    --chip-observed: #173a2d;
+    --chip-interp: #2c2650;
+    --chip-sketch: #43361a;
+    --chip-local: #46281b;
+    --chip-report: #23331f;
+    --fig-card: #fcfcfb;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #242422;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #9c9a93;
+  --rule: #2c2c2a;
+  --rule-2: #383835;
+  --accent: #3987e5;
+  --accent-wash: #1b2a3d;
+  --chip-measured: #1d3150;
+  --chip-observed: #173a2d;
+  --chip-interp: #2c2650;
+  --chip-sketch: #43361a;
+  --chip-local: #46281b;
+  --chip-report: #23331f;
+  --fig-card: #fcfcfb;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+code { font: 0.9em/1.4 ui-monospace, Consolas, monospace; background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.wrap { max-width: 1000px; margin: 0 auto; padding: 0 16px 64px; }
+header.top { padding: 40px 0 20px; border-bottom: 1px solid var(--rule); }
+.kicker { color: var(--muted); font-size: 13px; letter-spacing: 0.02em; margin: 0 0 6px; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.01em; }
+.working-title { font-size: 17px; color: var(--ink-2); margin: 0 0 14px; max-width: 760px; }
+.working-title b { color: var(--ink); }
+.meta { color: var(--muted); font-size: 13px; margin: 0; }
+nav.toc { position: sticky; top: 0; z-index: 5; background: var(--page); border-bottom: 1px solid var(--rule); margin: 0 -16px; padding: 8px 16px; overflow-x: auto; white-space: nowrap; }
+nav.toc a { display: inline-block; margin-right: 14px; font-size: 13px; color: var(--ink-2); text-decoration: none; padding: 4px 0; }
+nav.toc a:hover { color: var(--accent); }
+section { padding-top: 34px; }
+h2 { font-size: 21px; margin: 0 0 6px; letter-spacing: -0.005em; }
+h2 .num { color: var(--muted); font-weight: 500; margin-right: 6px; }
+h3 { font-size: 16px; margin: 22px 0 6px; }
+p.lede { color: var(--ink-2); margin: 0 0 14px; max-width: 780px; }
+.thesis { background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 8px; padding: 14px 18px; margin: 18px 0; font-size: 17px; }
+.thesis small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0 4px; }
+.tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; }
+.tile .label { font-size: 12.5px; color: var(--ink-2); margin: 0 0 6px; }
+.tile .value { font-size: 28px; font-weight: 600; line-height: 1.15; margin: 0 0 6px; }
+.tile .note { font-size: 12.5px; color: var(--muted); margin: 0; }
+.timeline { list-style: none; margin: 14px 0; padding: 0; border-left: 2px solid var(--rule-2); }
+.timeline li { position: relative; padding: 2px 0 12px 20px; }
+.timeline li::before { content: ""; position: absolute; left: -7px; top: 8px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--rule-2); }
+.timeline li.loop::before { border-color: var(--accent); background: var(--accent); }
+.timeline .date { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; margin-right: 8px; }
+.timeline .what { font-weight: 600; }
+.timeline .detail { display: block; color: var(--ink-2); font-size: 14px; }
+.tbl { overflow-x: auto; margin: 12px 0 6px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; color: var(--ink-2); background: var(--surface-2); font-size: 12.5px; }
+tbody tr:last-child td { border-bottom: none; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.group td { background: var(--surface-2); font-weight: 600; font-size: 12.5px; color: var(--ink-2); }
+.chip { display: inline-block; font-size: 11.5px; line-height: 1.5; padding: 0 8px; border-radius: 999px; color: var(--ink); white-space: nowrap; }
+.chip.measured { background: var(--chip-measured); }
+.chip.observed { background: var(--chip-observed); }
+.chip.interp { background: var(--chip-interp); }
+.chip.sketch { background: var(--chip-sketch); }
+.chip.local { background: var(--chip-local); }
+.chip.report { background: var(--chip-report); }
+.chip.must { background: var(--accent); color: #ffffff; }
+.chip.nice { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--rule-2); }
+figure { margin: 22px 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; }
+figure .figimg { background: var(--fig-card); border-radius: 6px; padding: 8px; }
+figure img { display: block; width: 100%; height: auto; }
+figure .figimg.narrow img { max-width: 560px; margin: 0 auto; }
+figcaption { margin-top: 12px; }
+figcaption .figtitle { font-weight: 600; }
+figcaption .caption { display: block; color: var(--ink); margin-top: 4px; }
+.figmeta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
+.figmeta span b { color: var(--ink); font-weight: 600; }
+details { margin-top: 10px; font-size: 13px; }
+details summary { cursor: pointer; color: var(--accent); }
+details .tbl { margin-top: 8px; }
+.model { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+.model .eq { font: 15px/1.6 "Cambria Math", "Times New Roman", serif; background: var(--surface-2); border-radius: 6px; padding: 8px 12px; margin: 8px 0; overflow-x: auto; }
+.model .eq var { font-style: italic; }
+.model dt { font-weight: 600; margin-top: 10px; }
+.model dd { margin: 2px 0 0 0; color: var(--ink-2); }
+ol.qs { padding-left: 22px; }
+ol.qs li { margin-bottom: 8px; }
+ol.qs .def { display: block; color: var(--ink-2); font-size: 14px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; }
+.card h3 { margin-top: 0; }
+.card.rec { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.card .tag { font-size: 12px; color: var(--accent); font-weight: 600; margin: 0 0 4px; }
+ul.tight { padding-left: 20px; margin: 6px 0; }
+ul.tight li { margin-bottom: 4px; }
+.note { color: var(--muted); font-size: 13px; }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+@media (max-width: 560px) {
+  h1 { font-size: 24px; }
+  .tile .value { font-size: 24px; }
+  figure { padding: 10px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <p class="kicker">Gemma 4 paper track · loop study · overview for the planning round</p>
+  <h1>What we did, what we found, and what the paper could show</h1>
+  <p class="working-title">Recommended working title: <b>Selected, Then Sealed: Why Gemma 4's Coding Agent Repeats Tool Calls, and Why Breaking the Loop Doesn't Fix the Task</b></p>
+  <p class="meta">Draft of 2026-10-24. Numbers are quoted from <a href="../findings.md">findings.md</a> and the records it names; none are new measurements, except the model sketch in Fig 6, which is labelled. This page is for planning, not paper prose. Tables copy into Word as tables, and the figures are PNG files in <a href="figures/">figures/</a> (see <a href="#files">Files</a>).</p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#glance">At a glance</a><a href="#did">What we did</a><a href="#terms">Terms</a><a href="#findings">Findings</a><a href="#figures">Figures</a><a href="#levers">Levers table</a><a href="#model">Formal model</a><a href="#limits">Limits</a><a href="#plan">Paper plan</a><a href="#questions">Open questions</a><a href="#files">Files</a>
+</nav>
+
+<!-- ============================================================ 1 -->
+<section id="glance">
+  <h2><span class="num">1</span>At a glance</h2>
+  <p class="lede"><b>The question:</b> why does Gemma 4 31B, with thinking off, send the same tool call again and again on a coding task, and what breaks the loop?</p>
+  <div class="thesis">The loop is a symptom of a state the model is already sure about, and it is held in place by its own copies; removing the loop doesn't recover the task.
+    <small>The study's one-sentence summary (findings.md §1). Its status is interpretation: a reading of the measured and observed results below.</small></div>
+  <div class="tiles">
+    <div class="tile"><p class="label">Task runs that are loop tasks (31B)</p><p class="value">24.8%</p><p class="note">They resolve 20% of the time, against 37% for the rest.</p></div>
+    <div class="tile"><p class="label">P(one more identical call), request held fixed</p><p class="value">0.78 → 0.99</p><p class="note">From the 1st copy to the 10th+: most of lock-in is selection.</p></div>
+    <div class="tile"><p class="label">Clean steps after the 5th copy that ended a run</p><p class="value">0 of 1,342</p><p class="note">At T = 0.2, long runs end only from outside.</p></div>
+    <div class="tile"><p class="label">Resolved under every whole-task lever</p><p class="value">71–73 of 218</p><p class="note">The levers move the loops, not the outcome.</p></div>
+  </div>
+  <p class="note">Setting of every number unless it says otherwise: Gemma 4 31B (int4, w4a16), thinking off, the competition's harness with the pinned <code>off_args</code> zip; T = 0.2, top-p 0.95, top-k 64; 4 minutes, 60 tool calls and 100 turns per task; 109 tasks from fastapi, requests, httpx (70) and rich (39); closed-loop runs on wheelhouse v31, one A100. Intervals are 95%, from resampling tasks.</p>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="did">
+  <h2><span class="num">2</span>What we did</h2>
+  <p class="lede">The study started as an OPSD training plan and became a study of the loops themselves when the self-teacher turned out to share them.</p>
+  <ol class="timeline">
+    <li><span class="date">10-07</span><span class="what">OPSD chosen as the paper's direction</span><span class="detail">Self-distil a thinking-off student from the model's own teacher (<a href="../README.md">README</a>, <a href="../opsd_assessment.md">opsd_assessment.md</a>).</span></li>
+    <li><span class="date">10-10/11</span><span class="what">Gate 1: does a teacher put its KL on the failure tokens?</span><span class="detail">The thinking teacher fails (ratio 0.51), the forced-empty-thought teacher passes (2.82); the replay at stuck states starts the loop work (<a href="../gate1/README.md">gate1/README.md</a>).</span></li>
+    <li class="loop"><span class="date">10-12</span><span class="what">Pivot to the loops; round 1</span><span class="detail">T-open (a forced thought, one step ahead), the always-block template over whole tasks (v30), and the literature review (<a href="../loops/README.md">loops/README.md</a>, <a href="../loops/literature.md">literature.md</a>).</span></li>
+    <li class="loop"><span class="date">10-14</span><span class="what">G1, the dose test</span><span class="detail">Do added copies raise the next copy at a fixed history? (<a href="../ablation/ablation_G1.md">ablation_G1.md</a>)</span></li>
+    <li class="loop"><span class="date">10-15</span><span class="what">G2, the feedback factorial</span><span class="detail">Is the copy cued by what the results look like, or by what they say? (<a href="../ablation/ablation_G2.md">ablation_G2.md</a>)</span></li>
+    <li class="loop"><span class="date">10-15/16</span><span class="what">G3, temperature and replication over whole tasks</span><span class="detail">Does lock-in survive Google's T = 1? Does the block replicate on v31? (<a href="../ablation/ablation_G3.md">ablation_G3.md</a>)</span></li>
+    <li class="loop"><span class="date">10-19/20</span><span class="what">G4, dedup over whole tasks</span><span class="detail">A proxy holds the request fixed through every run: selection against reinforcement (<a href="../ablation/ablation_G4.md">ablation_G4.md</a>). Experiments frozen; <a href="../findings.md">findings.md</a> written.</span></li>
+    <li class="loop"><span class="date">10-20/21</span><span class="what">The 12B control</span><span class="detail">The same control with Gemma 4 12B: generality of the descriptive claims (<a href="../ablation/ablation_control.md">ablation_control.md</a>). Experiment round ended.</span></li>
+    <li><span class="date">10-21 →</span><span class="what">Planning round</span><span class="detail">Outline, figure list and a formal model (this page; <a href="outline_prompt.md">outline_prompt.md</a>).</span></li>
+  </ol>
+
+  <h3>Table 2. The arms and replays</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Arm</th><th>What changes</th><th class="n">Passes</th><th class="n">Resolved</th><th>Record</th></tr></thead>
+    <tbody>
+      <tr class="group"><td colspan="5">Over whole tasks (closed loop): 109 tasks per pass, wheelhouse v31</td></tr>
+      <tr><td><code>ctrl</code></td><td>Nothing: the 31B with the pinned zip, T = 0.2</td><td class="n">2</td><td class="n">72 of 218</td><td><a href="../ablation/ablation_G3.md">G3</a></td></tr>
+      <tr><td><code>ctrl_t1</code></td><td>T = 1, Google's setting (top-p 0.95, top-k 64)</td><td class="n">2</td><td class="n">71 of 218</td><td><a href="../ablation/ablation_G3.md">G3</a></td></tr>
+      <tr><td><code>block</code></td><td>Always-block template: the empty thought after every tool response (the edit of HF PR #147)</td><td class="n">1</td><td class="n">38 of 109</td><td><a href="../ablation/ablation_G3.md">G3</a></td></tr>
+      <tr><td><code>dedup</code></td><td>A token proxy collapses every run of identical tool turns to its first, so the request is fixed through a run</td><td class="n">2</td><td class="n">73 of 218</td><td><a href="../ablation/ablation_G4.md">G4</a></td></tr>
+      <tr><td><code>ctrl_12b</code></td><td>Gemma 4 12B in the 31B's place (the zip's two <code>model:</code> lines)</td><td class="n">2</td><td class="n">24 of 218</td><td><a href="../ablation/ablation_control.md">control</a></td></tr>
+      <tr class="group"><td colspan="5">One step ahead (replays): recorded v30 histories, scored in v31's serving environment</td></tr>
+      <tr><td>Gate 1 replay</td><td>Teachers (T-think, C-none), a note, a hint, T = 1, fewer copies, at 581 states in 70 tasks</td><td class="n">–</td><td class="n">–</td><td><a href="../gate1/README.md">Gate 1</a></td></tr>
+      <tr><td>T-open</td><td>The thought forced open for 32 tokens, at 213 looping states in 44 tasks</td><td class="n">–</td><td class="n">–</td><td><a href="../loops/loops_reason_10_13.md">loops_reason §5</a></td></tr>
+      <tr><td>G1 dose</td><td>1, 2 or 4 identical copies of an empty search, against re-spellings, at 60 histories in 56 tasks</td><td class="n">–</td><td class="n">–</td><td><a href="../ablation/ablation_G1.md">G1</a></td></tr>
+      <tr><td>G2 factorial</td><td>Varied IDs × a faithful note, a placebo, the block, the block before every call, at 101 repeat states in 23 tasks</td><td class="n">–</td><td class="n">–</td><td><a href="../ablation/ablation_G2.md">G2</a></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="terms">
+  <h2><span class="num">3</span>Terms, in one picture</h2>
+  <p class="lede">The paper would keep "tool-call loops", with onset and lock-in (literature.md §2). "Return" is dropped unless a section needs it.</p>
+  <figure id="fig1a">
+    <div class="figimg"><img src="figures/fig1a_design.png" alt="A synthetic agent run: three fresh calls, then seven identical calls c (k = 1 to 7), then submit; a budget warning ends the run. Below, what the model sees at k = 4: in the control, four copies of c with their empty results; under the dedup proxy, one copy and three removed. P(c again) is 0.96 and 0.88."></div>
+    <figcaption><span class="figtitle">Fig 1a. A tool-call loop, and the fixed-request test.</span>
+      <span class="caption">Top: a synthetic run of identical calls <i>c</i>, from onset (k = 1) to an exit forced by the harness's budget warning. Bottom: what the model is shown before its next call at k = 4, in the control and under the dedup proxy, which collapses the run to its first call so the request is the same at every step.</span>
+      <div class="figmeta"><span><b>Carries</b> findings 2, 3, 4</span><span><b>Source</b> drawing; P values from ablation_G4.md §5.1 (k = 3–4)</span><span class="chip must">must, as panel (a) of Fig 1</span></div>
+    </figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>Run, <i>k</i></td><td>Consecutive identical tool calls; <i>k</i> counts the identical calls so far.</td></tr>
+      <tr><td>Copy · return · stale</td><td>A copy repeats the call just before; a return repeats an earlier one; stale calls are both.</td></tr>
+      <tr><td>Loop task</td><td>A task run where at least half the calls are bad (stale or malformed).</td></tr>
+      <tr><td>Lock-in hazard</td><td>P(one more identical call | the last <i>k</i> calls were identical, the last one well formed).</td></tr>
+      <tr><td>Clean step</td><td>No budget warning in the last result, and no compaction before the next call.</td></tr>
+      <tr><td>Onset · lock-in</td><td>Onset is the first copy after a fresh call (<i>k</i> = 1); lock-in is continuing once copying has started (<i>k</i> ≥ 2).</td></tr>
+      <tr><td>Escape (one step ahead)</td><td>A next call that is neither stale nor malformed. Not a solved task.</td></tr>
+      <tr><td>Control · fixed request</td><td>The model sees its copies (<code>ctrl</code>) or the request after the run's first call at every step (<code>dedup</code>).</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="findings">
+  <h2><span class="num">4</span>The ten findings</h2>
+  <p class="lede">Status follows findings.md §2: <span class="chip measured">measured</span> a controlled manipulation, <span class="chip observed">observed</span> a pattern in recorded runs, <span class="chip interp">interpretation</span> a reading of both.</p>
+  <div class="tbl"><table>
+    <thead><tr><th class="n">#</th><th>Finding</th><th>Status</th><th>Evidence</th><th>Paper §</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td><b>Loops are common, and they mark lost runs.</b> A quarter of task runs are loop tasks; they resolve 20% against 37%. At 12B 44.5%, and only in direction (8% against 13%).</td><td><span class="chip observed">observed</span></td><td><a href="../ablation/ablation_G3.md">G3</a> §3, §5.3; <a href="../ablation/ablation_control.md">control</a> §5.8</td><td>3</td></tr>
+      <tr><td class="n">2</td><td><b>Loops start where the model is already close to certain of the call.</b> With the request held fixed, 78% after the first copy and 99% by the 10th: most of the curve is selection.</td><td><span class="chip measured">measured</span></td><td><a href="../ablation/ablation_G4.md">G4</a> §5.1</td><td>4</td></tr>
+      <tr><td class="n">3</td><td><b>The copies reinforce, on their exact tokens, and close the last escapes.</b> 0.002 → 0.43 for 1 → 4 identical copies, re-spellings flat; in the closed loop 87–93% → 96–100% at 3–9 calls.</td><td><span class="chip measured">measured</span></td><td><a href="../ablation/ablation_G1.md">G1</a> §3; G4 §5.1–5.2</td><td>4</td></tr>
+      <tr><td class="n">4</td><td><b>At T = 0.2, long runs end only from outside.</b> 0 of 1,342 clean steps after 5 copies end a run; exits are the budget warning, a compaction or the task's end. 12B: 4 of 119 runs of 10+ end on their own.</td><td><span class="chip observed">observed</span></td><td>G3 §5.1–5.2; G4 §5.2; control §5.1–5.2</td><td>5</td></tr>
+      <tr><td class="n">5</td><td><b>The pattern of the context drives the copy, not what the results say.</b> Varied IDs and a faithful note leave it; an instruction and a pattern break move it.</td><td><span class="chip measured">measured</span></td><td><a href="../ablation/ablation_G2.md">G2</a>; gate1.md §2</td><td>6</td></tr>
+      <tr><td class="n">6</td><td><b>The model skips thinking where a thought would help.</b> Where it chose not to think, a forced thought escapes 58% against 11%, one step ahead.</td><td><span class="chip measured">measured</span></td><td><a href="../loops/loops_reason_10_13.md">loops_reason</a> §5</td><td>6</td></tr>
+      <tr><td class="n">7</td><td><b>Every whole-task lever changes the loops, not the outcome.</b> T = 1 halves onset, the block fragments runs, dedup lets short runs end; resolution stays at 71–73 of 218.</td><td><span class="chip measured">measured</span></td><td>G3 §4, §5.3; G4 §4, §5.6</td><td>7</td></tr>
+      <tr><td class="n">8</td><td><b>At T = 0.2, which tasks loop is a property of the task.</b> Not at T = 1; across sizes only in part.</td><td><span class="chip observed">observed</span></td><td>G3 §5.4; G4 §5.4; control §5.5</td><td>3</td></tr>
+      <tr><td class="n">9</td><td><b>The self-teacher shares the loop</b>, which is why the study left OPSD (KL ratio 0.51).</td><td><span class="chip measured">measured</span></td><td><a href="../gate1/README.md">Gate 1</a>; <a href="../opsd_assessment.md">opsd_assessment</a></td><td>9 (one sentence)</td></tr>
+      <tr><td class="n">10</td><td><b>Size changes how often loops start, not how firmly they hold.</b> The 12B starts copying 2.4× as often after a fresh call, then continues at the 31B's rates.</td><td><span class="chip observed">observed</span></td><td>control §4, §5.1</td><td>4</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section id="figures">
+  <h2><span class="num">5</span>Figures</h2>
+  <p class="lede">Candidates for the paper, with a draft caption each. <span class="chip report">report table</span> means the numbers are in a report file on Explorer; <span class="chip local">local split</span> means a scratchpad analysis whose script must be brought into the repo before the paper uses it; <span class="chip sketch">sketch</span> means a model, not a measurement.</p>
+
+  <figure id="fig1b">
+    <div class="figimg"><img src="figures/fig1b_hazard.png" alt="Lock-in hazard by run length. Onset at k = 1: 0.024 (31B control), 0.022 (31B fixed request), 0.058 (12B). From k = 2 to 10+: 31B control 0.68, 0.96, 1.00, 1.00; fixed request 0.79, 0.88, 0.93, 0.99; 12B 0.69, 0.95, 0.99, 1.00."></div>
+    <figcaption><span class="figtitle">Fig 1b. The lock-in hazard, with and without the copies in view.</span>
+      <span class="caption">P(one more identical call | <i>k</i> identical so far), on clean steps. With the request held fixed (orange) the hazard still rises from 0.79 to 0.99, so most of its height is selection; the copies in view (blue) close the remaining escapes from <i>k</i> = 3. The 12B (green) starts copying 2.4× as often and then holds at the 31B's rates.</span>
+      <div class="figmeta"><span><b>Carries</b> findings 2, 3, 10 (and 4's tail)</span><span><b>Source</b> ablation_G4.md §5.1, ablation_control.md §5.1</span><span class="chip local">local split; report rows match</span><span class="chip must">must</span></div>
+      <p class="note">Bars are binomial 95% intervals, which ignore clustering by task; the paper should replace them with task resamples from <code>report_12b_p2/loops.json</code>.</p>
+      <details><summary>Data</summary><div class="tbl"><table>
+        <thead><tr><th>Clean steps</th><th class="n">k = 1</th><th class="n">2</th><th class="n">3–4</th><th class="n">5–9</th><th class="n">10+</th></tr></thead>
+        <tbody>
+          <tr><td>31B, control (2 passes)</td><td class="n">0.024 (4,985)</td><td class="n">0.678 (115)</td><td class="n">0.958 (142)</td><td class="n">1.000 (290)</td><td class="n">1.000 (1,052)</td></tr>
+          <tr><td>31B, fixed request (dedup, 2 passes)</td><td class="n">0.022 (5,142)</td><td class="n">0.793 (111)</td><td class="n">0.877 (155)</td><td class="n">0.934 (271)</td><td class="n">0.993 (816)</td></tr>
+          <tr><td>12B, control (2 passes)</td><td class="n">0.058 (4,487)</td><td class="n">0.687 (243)</td><td class="n">0.950 (302)</td><td class="n">0.990 (572)</td><td class="n">0.997 (1,805)</td></tr>
+        </tbody>
+      </table></div><p class="note">Steps in brackets. Paired over tasks (all steps): dedup − ctrl −7.0 (−13.3 to −0.8) at 3–4 and −4.1 (−7.3 to −1.1) at 5–9; 12B − 31B +3.2 (+2.2 to +4.2) at k = 1, no later interval excludes 0.</p></details>
+    </figcaption>
+  </figure>
+
+  <figure id="fig2">
+    <div class="figimg narrow"><img src="figures/fig2_dose.png" alt="Dose test: P(next call = c) is 0.002, 0.098, 0.434 with 1, 2, 4 identical copies, and 0.002, 0.027, 0.038 with re-spellings. Closed-loop references: 0.78 after 2 identical calls, 0.96 at 3+."></div>
+    <figcaption><span class="figtitle">Fig 2. Copies reinforce only as exact copies.</span>
+      <span class="caption">At 60 fixed histories (G1, one step ahead), adding identical copies of an empty search raises its probability; re-spelled copies of the same search, with the same result, don't. Both stay far below the closed-loop rates (diamonds), so the curve in Fig 1b is not reinforcement alone.</span>
+      <div class="figmeta"><span><b>Carries</b> finding 3</span><span><b>Source</b> ablation_G1.md §3 (dose.md)</span><span class="chip report">report table</span><span class="chip nice">nice; could be a small panel of Fig 1</span></div>
+      <details><summary>Data</summary><div class="tbl"><table>
+        <thead><tr><th>Arm</th><th class="n">p(c), run's sampling</th><th class="n">p(c), exact</th></tr></thead>
+        <tbody>
+          <tr><td><code>dose1</code>: c once</td><td class="n">0.002</td><td class="n">0.006</td></tr>
+          <tr><td><code>dose2</code>: c twice</td><td class="n">0.098</td><td class="n">0.052</td></tr>
+          <tr><td><code>dose4</code>: c four times</td><td class="n">0.434</td><td class="n">0.307</td></tr>
+          <tr><td><code>para2</code>: c, then one re-spelling</td><td class="n">0.027</td><td class="n">0.009</td></tr>
+          <tr><td><code>para4</code>: c, then three re-spellings</td><td class="n">0.038</td><td class="n">0.015</td></tr>
+        </tbody>
+      </table></div><p class="note">Paired: dose4 − para4 +0.376 (0.258 to 0.496); dose2 − dose1 +0.096 (0.040 to 0.165). 59 of 60 histories rise monotonically. Closed-loop references are the v30 control's lock-in (0.775 at k = 2, 0.957 at 3+).</p></details>
+    </figcaption>
+  </figure>
+
+  <figure id="fig3">
+    <div class="figimg"><img src="figures/fig3_levers.png" alt="Forest plot of lever minus control. Stale share: T = 1 −18.2, always-block +1.6, dedup −1.3, 12B +14.8 points. Run length: −8.6, −9.0, −0.4, −0.1 calls. Resolved: −0.5, +1.8, +0.5, −22.0 points."></div>
+    <figcaption><span class="figtitle">Fig 3. The loops move, the outcome doesn't.</span>
+      <span class="caption">Each whole-task lever against the control, paired over 109 tasks (95% intervals from 2,000 task resamples; filled where the interval excludes 0). T = 1 cuts stale calls and the always-block template shortens runs, but no lever moves resolution. The 12B row shows the size of change the design can detect.</span>
+      <div class="figmeta"><span><b>Carries</b> finding 7 (and 10)</span><span><b>Source</b> ablation_G3.md §4, ablation_G4.md §4, ablation_control.md §4</span><span class="chip report">report table</span><span class="chip nice">nice; Table 1's last column says it in words</span></div>
+      <details><summary>Data</summary><div class="tbl"><table>
+        <thead><tr><th>Lever − control</th><th class="n">Stale (points)</th><th class="n">Run length, 3+ (calls)</th><th class="n">Resolved (points)</th></tr></thead>
+        <tbody>
+          <tr><td>T = 1</td><td class="n">−18.2 (−24.8 to −11.0)</td><td class="n">−8.63 (−12.76 to −4.53)</td><td class="n">−0.5 (−5.0 to +4.1)</td></tr>
+          <tr><td>always-block (1 pass)</td><td class="n">+1.6 (−4.5 to +7.6)</td><td class="n">−8.95 (−12.63 to −4.80)</td><td class="n">+1.8 (−3.7 to +7.8)</td></tr>
+          <tr><td>dedup</td><td class="n">−1.3 (−6.0 to +3.1)</td><td class="n">−0.41 (−4.73 to +4.02)</td><td class="n">+0.5 (−3.7 to +4.6)</td></tr>
+          <tr><td>12B (size)</td><td class="n">+14.8 (+8.9 to +20.7)</td><td class="n">−0.08 (−3.92 to +3.60)</td><td class="n">−22.0 (−29.8 to −15.1)</td></tr>
+        </tbody>
+      </table></div></details>
+    </figcaption>
+  </figure>
+
+  <figure id="fig4">
+    <div class="figimg"><img src="figures/fig4_exits.png" alt="How runs end, as shares. Runs of 3+: the model's own exit is 14% in the 31B control, 43% at T = 1, 65% under always-block, 40% under dedup, 13% at 12B. Runs of 10+: own exits are 1 of 72 in the 31B control; the rest end at the budget warning (60%), a compaction (32%) or the task's end."></div>
+    <figcaption><span class="figtitle">Fig 4. Long runs end from outside.</span>
+      <span class="caption">How runs of identical calls end, by arm. Left: all runs of 3+. Right: runs of 10+. In the control, long runs end at the budget warning, a compaction or the task's end, and almost never on the model's own (1 of 72). Dedup and the block let shorter runs end; neither changes resolution (Fig 3).</span>
+      <div class="figmeta"><span><b>Carries</b> finding 4 (and 3)</span><span><b>Source</b> 3+: ablation_G3/G4/control §3; 10+: ablation_G4.md §5.2, ablation_control.md §5.2</span><span class="chip report">left: report table</span><span class="chip local">right: local split</span><span class="chip nice">nice</span></div>
+      <details><summary>Data</summary><div class="tbl"><table>
+        <thead><tr><th>Arm</th><th class="n">3+: own / warning / compaction / task end</th><th class="n">10+: own / warning / compaction / task end</th></tr></thead>
+        <tbody>
+          <tr><td>31B control (2 passes)</td><td class="n">16 / 58 / 33 / 9</td><td class="n">1 / 43 / 23 / 5</td></tr>
+          <tr><td>T = 1 (2 passes)</td><td class="n">36 / 20 / 21 / 7</td><td class="n">2 / 10 / 13 / 3</td></tr>
+          <tr><td>always-block (1 pass)</td><td class="n">62 / 18 / 11 / 5</td><td class="n">18 / 10 / 6 / 3</td></tr>
+          <tr><td>dedup (2 passes)</td><td class="n">43 / 41 / 7 / 17</td><td class="n">6 / 31 / 2 / 15</td></tr>
+          <tr><td>12B control (2 passes)</td><td class="n">25 / 63 / 60 / 44</td><td class="n">4 / 51 / 34 / 30</td></tr>
+        </tbody>
+      </table></div><p class="note">The report checks task end, then the budget warning, then a compaction, else "own". The text's 43 / 14 / 1 / 0 counts only well-formed runs of 10+ (58).</p></details>
+    </figcaption>
+  </figure>
+
+  <figure id="fig5">
+    <div class="figimg narrow"><img src="figures/fig5_topen.png" alt="Escapes one step ahead. Where the model skipped the thought: 11% when free to think, 58% with the thought forced open. Where it chose to think: 62% and 63%."></div>
+    <figcaption><span class="figtitle">Fig 5. A forced thought helps where the model skipped one.</span>
+      <span class="caption">At 213 looping states (T-open, one step ahead), the thought forced open for 32 tokens escapes 58% of the time where the model, free to think, went straight to the call (11%); where it chose to think, forcing adds nothing measurable. An escape is a next call that is neither stale nor malformed, not a solved task; no whole-task arm forced thoughts.</span>
+      <div class="figmeta"><span><b>Carries</b> finding 6</span><span><b>Source</b> loops_reason_10_13.md §5 (gate1.md §4)</span><span class="chip report">report table</span><span class="chip nice">nice; supporting result</span></div>
+      <details><summary>Data</summary><div class="tbl"><table>
+        <thead><tr><th>Looping states</th><th class="n">T-think escapes</th><th class="n">T-open escapes</th><th class="n">Paired difference</th></tr></thead>
+        <tbody>
+          <tr><td>Skipped the thought (114 states, 36 tasks)</td><td class="n">12 / 114 = 10.5%</td><td class="n">66 / 114 = 57.9%</td><td class="n">+47.4 (33.0 to 61.1)</td></tr>
+          <tr><td>Thought (99 states, 34 tasks)</td><td class="n">61 / 99 = 61.6%</td><td class="n">62 / 99 = 62.6%</td><td class="n">+1.0 (−6.7 to +9.1)</td></tr>
+        </tbody>
+      </table></div><p class="note">Intervals from 20,000 resamples of tasks.</p></details>
+    </figcaption>
+  </figure>
+
+  <figure id="fig6">
+    <div class="figimg"><img src="figures/fig6_model.png" alt="Model sketch. Left: among states still in a run, the share with P(same call) of at least 0.99 grows from under 1% at k = 1 to 30% at k = 2, 57% at k = 10 and 75% at k = 30. Right: the Beta-geometric hazard curve rises from 0.022 to near 1 and passes close to the observed fixed-request points."></div>
+    <figcaption><span class="figtitle">Fig 6. Selection, as a formal model (sketch, not a fit).</span>
+      <span class="caption">If each state's chance to draw the same call again follows a Beta(<i>a</i>, <i>b</i>) distribution, the fixed-request hazard is (<i>a</i> + <i>k</i> − 1) / (<i>a</i> + <i>b</i> + <i>k</i> − 1). Set from <i>k</i> = 1 and 2 alone (<i>a</i> = 0.006, <i>b</i> = 0.26), it gives 0.90, 0.95 and 0.99 for the later bins, against 0.88, 0.93 and 0.99 observed. Left: the states still copying at <i>k</i> are increasingly the near-certain ones.</span>
+      <div class="figmeta"><span><b>Carries</b> findings 2 and 4, formally</span><span><b>Source</b> make_figures.py (<code>model_params</code>, <code>model_bins</code>) on Fig 1b's dedup row</span><span class="chip sketch">sketch</span><span class="chip nice">waits on your call (b): the fit</span></div>
+      <details><summary>Data</summary><div class="tbl"><table>
+        <thead><tr><th>Fixed request</th><th class="n">k = 1</th><th class="n">2</th><th class="n">3–4</th><th class="n">5–9</th><th class="n">10+</th></tr></thead>
+        <tbody>
+          <tr><td>Observed</td><td class="n">0.022</td><td class="n">0.793</td><td class="n">0.877</td><td class="n">0.934</td><td class="n">0.993</td></tr>
+          <tr><td>Sketch (bin averages weighted by states at risk)</td><td class="n">0.022</td><td class="n">0.793</td><td class="n">0.901</td><td class="n">0.955</td><td class="n">0.989</td></tr>
+        </tbody>
+      </table></div><p class="note">The first two columns match by construction. The sketch ignores censoring and pools passes; a proper fit is maximum likelihood on per-step counts with task resamples.</p></details>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="levers">
+  <h2><span class="num">6</span>Table 1. Every lever, one step ahead and over whole tasks</h2>
+  <p class="lede">The paper's lever table (findings.md §3, condensed). One-step numbers come from different state sets; each cell names its own.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Lever</th><th>One step ahead (replay)</th><th>Over whole tasks: the loops</th><th class="n">Resolved of 218</th></tr></thead>
+    <tbody>
+      <tr><td>None (control)</td><td>–</td><td>stale 38.6% of calls; loop tasks 24.8%; runs of 3+ last 19.8 calls</td><td class="n">72</td></tr>
+      <tr><td>A forced thought (T-open)</td><td>escape 57.9% against 10.5% where the model skipped thinking (114 states)</td><td>not run</td><td class="n">–</td></tr>
+      <tr><td>An instruction (note "Do not run it again"; hint)</td><td>p(copy) at 3rd+ copies 0.94 → 0.49 and 0.45 (Gate 1)</td><td>not run as such; the harness's budget warning ends 43 of 58 long runs</td><td class="n">–</td></tr>
+      <tr><td>A description (faithful note); varied IDs</td><td>exact p(c) +0.020 and −0.005 (G2, 101 states): no less copying</td><td>not run</td><td class="n">–</td></tr>
+      <tr><td>Always-block template</td><td>p(c) at copy states 0.791 → 0.216 (G2)</td><td>runs 9 calls shorter, +0.35 runs per task; stale +1.6 (−4.5 to +7.6)</td><td class="n">38 of 109</td></tr>
+      <tr><td>The empty thought before every call (<code>think_all</code>)</td><td>p(c) back at 0.818: the block is a pattern break</td><td>–</td><td class="n">–</td></tr>
+      <tr><td>Dedup of the run</td><td>at 12 clean states 0.40 → 0.08 (6 tasks)</td><td>own exits 47% against 15% of runs; copies −2.6 (−8.2 to +2.8); runs of 10+ per task 0.33 → 0.25</td><td class="n">73</td></tr>
+      <tr><td>T = 1</td><td>p(copy) at 3rd+ copies 0.73 (against 0.94)</td><td>stale −18.2 (−24.8 to −11.0); loop tasks 24.8% → 9.2%; once under way a run still continues 87%</td><td class="n">71</td></tr>
+      <tr><td>For scale: the 12B (not a lever)</td><td>–</td><td>stale +14.8; loop tasks 44.5%; lock-in at 3+ 95.6% against 94.8%</td><td class="n">24</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">The block ran one pass (the control's passes resolved 35 and 37 of 109). G2's wider dedup number (0.79 → 0.07) is withdrawn: it also deleted calls sent before the run. Sources: gate1.md §2, loops_reason_10_13.md §5, ablation_G2.md, ablation_G3.md §4, ablation_G4.md §4–5, ablation_control.md §3.</p>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="model">
+  <h2><span class="num">7</span>The formal model (proposed 2026-10-24)</h2>
+  <p class="lede">One paragraph for §4, about 180 words. It borrows a known result: in survival analysis and econometrics, differences between individuals alone make a hazard rise ("frailty"; "heterogeneity against state dependence"). Our fixed-request proxy separates the two by intervention.</p>
+  <div class="model">
+    <dl>
+      <dt>Model</dt>
+      <dd>Each state <i>s</i> has a chance <i>p<sub>s</sub></i> of drawing the same call again from the fixed request. Under dedup each step is a fresh draw from that request, so</dd>
+    </dl>
+    <div class="eq"><i>h</i><sub>0</sub>(<i>k</i>) = E[<i>p</i><sup><i>k</i></sup>] / E[<i>p</i><sup><i>k</i>−1</sup>]</div>
+    <dl>
+      <dt>Proposition 1: selection alone makes the curve rise (for any mix of states)</dt>
+      <dd><i>h</i><sub>0</sub>(<i>k</i>) never falls with <i>k</i>. By Cauchy–Schwarz, E[<i>p</i><sup><i>k</i></sup>]<sup>2</sup> ≤ E[<i>p</i><sup><i>k</i>−1</sup>] · E[<i>p</i><sup><i>k</i>+1</sup>]. So a rising lock-in curve is no evidence of reinforcement on its own: the claim withdrawn on 10-20. Test: the dedup curve must be non-decreasing, and it is (0.78, 0.87, 0.93, 0.99).</dd>
+      <dt>Decomposition</dt>
+      <dd>Selection is <i>h</i><sub>0</sub>(<i>k</i>) − <i>h</i><sub>0</sub>(1). Reinforcement is <i>h</i><sub>ctrl</sub>(<i>k</i>) − <i>h</i><sub>0</sub>(<i>k</i>), measurable from <i>k</i> = 3 (dedup − control: −7.0 points at 3–4 and −4.1 at 5–9; none at <i>k</i> = 2).</dd>
+      <dt>Sketch: a Beta mix (Fig 6)</dt>
+      <dd>With <i>p</i> ~ Beta(<i>a</i>, <i>b</i>):</dd>
+    </dl>
+    <div class="eq"><i>h</i><sub>0</sub>(<i>k</i>) = (<i>a</i> + <i>k</i> − 1) / (<i>a</i> + <i>b</i> + <i>k</i> − 1),   <i>a</i> ≈ 0.006,  <i>b</i> ≈ 0.26</div>
+    <dl>
+      <dd>Two observed points set it; the later bins come out at 0.90, 0.95 and 0.99 against 0.88, 0.93 and 0.99.</dd>
+      <dt>Proposition 2: the tail</dt>
+      <dd>P(run ≥ <i>k</i>) falls like <i>k</i><sup>−<i>b</i></sup>, and with <i>b</i> &lt; 1 the expected run length E[1/(1 − <i>p</i>)] is infinite: a run has no typical length, so a budget, a compaction or the task's end stops it. That ties finding 4 to finding 2.</dd>
+      <dt>Status and cost</dt>
+      <dd>Proposition 1 and the decomposition hold whatever the fit shows. The fit is a new analysis (per-step counts from <code>loops.json</code>, maximum likelihood by <i>k</i>, task resamples), about half a day; if it fails, drop the Beta and Proposition 2.</dd>
+    </dl>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>References for it</th><th>DOI</th></tr></thead>
+    <tbody>
+      <tr><td>Vaupel, Manton, Stallard. The impact of heterogeneity in individual frailty on the dynamics of mortality. <i>Demography</i> 16(3), 439–454 (1979).</td><td>10.2307/2061224</td></tr>
+      <tr><td>Weinberg, Gladen. The Beta-Geometric Distribution Applied to Comparative Fecundability Studies. <i>Biometrics</i> 42(3), 547– (1986).</td><td>10.2307/2531205</td></tr>
+      <tr><td>Heckman. Heterogeneity and State Dependence. In S. Rosen (ed.), <i>Studies in Labor Markets</i>, University of Chicago Press (1981).</td><td>book chapter; check before citing</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="limits">
+  <h2><span class="num">8</span>Limits, and claims withdrawn</h2>
+  <div class="two">
+    <div class="card">
+      <h3>What the study can't claim (findings.md §5)</h3>
+      <ul class="tight">
+        <li><b>Generality:</b> two sizes of one family, thinking off, one harness, four repositories, 109 tasks. The 12B tests the descriptive claims only.</li>
+        <li><b>Small effects on resolution:</b> one run varies by about ±2.2 tasks; an inconclusive difference is not equivalence.</li>
+        <li><b>The forced thought over whole tasks:</b> T-open is one step ahead only.</li>
+        <li><b>Calibrated confidence:</b> we measure re-draw probabilities, not calibration.</li>
+        <li><b>That escapes are progress,</b> or that the block and dedup are entries: a Kaggle zip can change neither the template nor the requests.</li>
+        <li><b>Where in the model:</b> nothing looks inside it.</li>
+        <li><b>Replay validity:</b> v30 histories scored in v31's environment (p(c) 0.639 against the recorded 0.634).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Withdrawn on the way (findings.md §4)</h3>
+      <ul class="tight">
+        <li>The block lowers the stale share 5–6 points → it fragments runs; no drop on v31.</li>
+        <li>Editing the context beats thinking → self-selection: the model skipped thoughts where they would help.</li>
+        <li>Lock-in is self-reinforcement → partly; most of it is selection (G4).</li>
+        <li>The repeated result is the cue → the call and the boundary before it are (G2).</li>
+        <li>Dedup is the strongest one-step lever → G2's version also deleted calls sent before the run.</li>
+        <li>Run-start states have p(c) 0.074 → the closed loop measures 0.78 at <i>k</i> = 2.</li>
+        <li>v31 doubles malformed calls → noise.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="plan">
+  <h2><span class="num">9</span>The paper plan (proposed, not agreed)</h2>
+  <h3>Three framings</h3>
+  <div class="two">
+    <div class="card rec">
+      <p class="tag">Recommended</p>
+      <h3>A. Mechanism: "Selected, Then Sealed"</h3>
+      <p>Loops start in states where the model would draw the same call almost every time; its own copies close the few escapes left; only the harness ends them; so breaking the loop leaves the task unsolved.</p>
+      <p class="note">Novelty: the selection–reinforcement split and how loops end are unmeasured elsewhere, and they explain the null. Quality: an instrument any agent study can use, and the same curve at 12B.</p>
+    </div>
+    <div class="card">
+      <h3>B. Measurement: "The Lock-In Hazard"</h3>
+      <p>The hazard by run length, with a fixed-request control, splits a loop into selection and reinforcement.</p>
+      <p class="note">Rejected as the lead: undersells the story and edges toward the Best New Resource award.</p>
+      <h3>C. Levers: "Breaking the Loop Doesn't Fix the Task"</h3>
+      <p>Large one-step effects reshape the loops over whole tasks, but resolution stays flat.</p>
+      <p class="note">Rejected as the lead: the null is already reported (SWE-smith, Gumaan, Liu) and can't rule out ±2 tasks.</p>
+    </div>
+  </div>
+
+  <h3>Sections and word budget (3,000)</h3>
+  <p class="note">Counted: every word a reader sees (title, headings, abstract, body, captions, table cells, references; numbers count). Text inside figure images is not counted, so it stays at axis labels.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Section</th><th>Content (findings)</th><th class="n">Words</th></tr></thead>
+    <tbody>
+      <tr><td>Title and subtitle</td><td></td><td class="n">25</td></tr>
+      <tr><td>Abstract</td><td></td><td class="n">170</td></tr>
+      <tr><td>1 Introduction</td><td>problem, closest prior work, contributions</td><td class="n">320</td></tr>
+      <tr><td>2 Setting and measures</td><td>model, harness, tasks, arms; run, <i>k</i>, clean step, hazard; intervals</td><td class="n">280</td></tr>
+      <tr><td>3 Loops are common and mark lost runs</td><td>1, 8</td><td class="n">130</td></tr>
+      <tr><td>4 Selected, then sealed</td><td>2, 3, 10; Fig 1; the formal model</td><td class="n">430</td></tr>
+      <tr><td>5 Long runs end from outside</td><td>4</td><td class="n">120</td></tr>
+      <tr><td>6 What cues the copy</td><td>5, 6</td><td class="n">240</td></tr>
+      <tr><td>7 Levers over whole tasks</td><td>7; Table 1</td><td class="n">260</td></tr>
+      <tr><td>8 Related work</td><td>literature.md §5, Fork-and-Flush, the model's references</td><td class="n">200</td></tr>
+      <tr><td>9 Limits and implications</td><td>OPSD in one sentence; detectors act at the 3rd–5th copy</td><td class="n">185</td></tr>
+      <tr><td>Captions and table cells</td><td></td><td class="n">320</td></tr>
+      <tr><td>References</td><td>about 17, compact</td><td class="n">320</td></tr>
+      <tr><td><b>Total</b></td><td></td><td class="n"><b>3,000</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>What to cut</h3>
+  <ul class="tight">
+    <li><b>OPSD:</b> one sentence in §9 (finding 9). Explaining it needs a KL setup the budget can't hold.</li>
+    <li><b>Round 1's v30 runs:</b> only as the source of the replays' histories, with the validity check.</li>
+    <li><b>The malformed-call slip:</b> one clause in §2 (the argument rules). A different mechanism.</li>
+    <li><b>Always-block:</b> one row of Table 1 and the block / <code>think_all</code> sentence; its stale-drop history goes.</li>
+    <li><b>Also out:</b> copies against returns, re-entry rates, the analyzer sub-agent (one caveat clause), T = 1's costs, "bad follows bad", the rescue ceiling (one clause at most).</li>
+  </ul>
+
+  <h3>Schedule to 2026-11-12</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Date</th><th>Step</th></tr></thead>
+    <tbody>
+      <tr><td>Oct 25</td><td>Outline agreed (moved from Oct 23); a placeholder Kaggle writeup created and saved, to test the editor's save bug</td></tr>
+      <tr><td>Oct 26–28</td><td>Figure scripts on the report JSON (task-resampled intervals); the local splits' scripts into the repo; the model fit if approved</td></tr>
+      <tr><td>Nov 1</td><td>First full draft</td></tr>
+      <tr><td>Nov 5</td><td>A complete version submitted early (ties go to the paper entered first)</td></tr>
+      <tr><td>Nov 6–10</td><td>Review and corrections</td></tr>
+      <tr><td>Nov 11</td><td>Final version; Nov 12 23:59 UTC is the deadline</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ 10 -->
+<section id="questions">
+  <h2><span class="num">10</span>Open questions, with default answers</h2>
+  <ol class="qs">
+    <li><b>Format:</b> Kaggle Writeup body or an arXiv-ready PDF? <span class="def">Default: the Writeup body with PNG figures. Check whether it renders LaTeX; if not, equations go in as plain text.</span></li>
+    <li><b>The word rule:</b> do captions, tables and references count? <span class="def">Default: count everything; re-check Kaggle's pages and thread 743255 before budgeting to the word.</span></li>
+    <li><b>The lead result:</b> <span class="def">Default: the hazard curve with the fixed-request control; the levers' null as its consequence.</span></li>
+    <li><b>OPSD:</b> <span class="def">Default: one sentence.</span></li>
+    <li><b>The 12B:</b> <span class="def">Default: a line on Fig 1b and size notes on each claim, no section.</span></li>
+    <li><b>T-open:</b> <span class="def">Default: a supporting result in §6, "one step ahead" stated wherever it appears.</span></li>
+    <li><b>Verifiability:</b> what goes public? <span class="def">Default: this repo with <code>loop_report.py</code>, the figure scripts and the aggregate report files, no traces; every quoted number from a report or a script in the repo. Weigh the code-sharing rule and the main track (to Dec 2); post the link on the paper-track forum.</span></li>
+    <li><b>A real loop example:</b> <span class="def">Default: none; Fig 1a's synthetic call (rule 2.4).</span></li>
+    <li><b>Terms:</b> <span class="def">Default: "tool-call loops", onset and lock-in; drop "return".</span></li>
+    <li><b>Hedge words:</b> <span class="def">Default: no "confident" or "sure" in the title; "near certain of the call", defined as a re-draw probability.</span></li>
+    <li><b>Comparability:</b> <span class="def">Default: report Liu's p(3rd | 2) only (ours 68% against their 37%).</span></li>
+    <li><b>A second writeup:</b> <span class="def">Default: no.</span></li>
+    <li><b>Writing split:</b> <span class="def">Default: you draft the abstract, the introduction, §4 and §9; I draft §2, §8, the captions, Table 1 and the scripts, and check every number against findings.md.</span></li>
+    <li><b>The formal model in §4 (Proposition 1 and the decomposition):</b> <span class="def">Default: yes.</span></li>
+    <li><b>The fit script (decides Fig 6 and Proposition 2):</b> <span class="def">Default: yes, in the Oct 26–28 slot.</span></li>
+    <li><b>Fig 1b's intervals:</b> <span class="def">Default: replace the binomial bars with task resamples from the report JSON.</span></li>
+  </ol>
+</section>
+
+<!-- ============================================================ 11 -->
+<section id="files">
+  <h2><span class="num">11</span>Files, and moving them into the paper</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>File</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td><code>paper/overview.html</code></td><td>This page.</td></tr>
+      <tr><td><code>paper/figures/fig_data.py</code></td><td>Every plotted number, with the record and section it is quoted from (<code>SOURCES</code>).</td></tr>
+      <tr><td><code>paper/figures/make_figures.py</code></td><td>Draws all figures: <code>python paper/figures/make_figures.py</code>. It also prints the model sketch's parameters and bin values.</td></tr>
+      <tr><td><code>paper/figures/fig*.png</code></td><td>300 dpi, 7.2 in wide (4.6 in for Figs 2 and 5): insert into Word or the Kaggle writeup as they are.</td></tr>
+      <tr><td><code>paper/figures/fig*.svg</code></td><td>The same figures with editable text, for later changes.</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="tight">
+    <li><b>Into a .docx:</b> select a table in the browser and paste it into Word, where it stays a table; insert the PNG for each figure, and paste its caption from the page.</li>
+    <li><b>Before the paper uses them:</b> the numbers here are transcribed from the records. The final figures should read <code>report_12b_p2_1020-2212/loops.json</code> and <code>baseline_*.json</code> on Explorer, and the local splits' scripts should come into the repo.</li>
+    <li><b>Competition data:</b> nothing here contains any; the only example call is synthetic.</li>
+  </ul>
+</section>
+
+<footer>Loop study overview, 2026-10-24. Sources: <a href="../findings.md">findings.md</a>, <a href="../ablation/ablation_G1.md">ablation_G1–G4</a>, <a href="../ablation/ablation_control.md">ablation_control.md</a>, <a href="../loops/loops_reason_10_13.md">loops_reason_10_13.md</a>, <a href="../gate1/README.md">gate1/README.md</a>, <a href="../loops/literature.md">literature.md</a>.</footer>
+</div>
+</body>
+</html>
