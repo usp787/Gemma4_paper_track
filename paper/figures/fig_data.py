@@ -12,7 +12,9 @@ local split (a scratchpad analysis whose script is not in this repo yet).
 HAZARD_BINS = ["1", "2", "3–4", "5–9", "10+"]
 HAZARD = {
     "ctrl_31b": [(0.024, 4985), (0.678, 115), (0.958, 142), (1.000, 290), (1.000, 1052)],
-    "dedup_31b": [(0.022, 5142), (0.793, 111), (0.877, 155), (0.934, 271), (0.993, 816)],
+    # k >= 2: the "fully collapsed" row (the request exactly the one after the run's first call); k = 1 has no
+    # run to collapse, so it is the all-clean-steps value.
+    "dedup_31b": [(0.022, 5142), (0.779, 104), (0.869, 145), (0.930, 257), (0.993, 811)],
     "ctrl_12b": [(0.058, 4487), (0.687, 243), (0.950, 302), (0.990, 572), (0.997, 1805)],
 }
 
@@ -65,9 +67,9 @@ TOPEN = {
 }
 
 SOURCES = {
-    "HAZARD": "ablation_G4.md §5.1 (ctrl and dedup, 'all clean steps' row) and ablation_control.md §5.1 "
-              "(ctrl_12b, both passes). Local splits; the report's clean-step rows hold the same values "
-              "(outline_prompt.md quotes dedup's as 0.79, 0.88, 0.93, 0.99).",
+    "HAZARD": "ablation_G4.md §5.1 (ctrl; dedup's 'fully collapsed' row for k >= 2, its 'all clean steps' "
+              "value at k = 1, changed 2026-10-30 to match the paper's fixed-request claim) and "
+              "ablation_control.md §5.1 (ctrl_12b, both passes). Local splits.",
     "DOSE": "ablation_G1.md §3, from $R/paper/loops/dose_baseline_nothink_args_v30_zip/dose.md. Report table.",
     "LEVERS": "ablation_G3.md §4 (T = 1, always-block), ablation_G4.md §4 (dedup), ablation_control.md §4 (12B). "
               "Report tables (loops.md paired differences).",

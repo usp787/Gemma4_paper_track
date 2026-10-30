@@ -117,7 +117,7 @@ def fig1a():
     # what the model is shown
     ax.text(0.1, 3.45, "What the model is shown before its next call, at k = 4", fontsize=9, weight="bold",
             color=INK, va="center")
-    rows = [(2.45, "Control", "copies in view", 4, "0.96"), (1.25, "Fixed request", "dedup proxy", 1, "0.88")]
+    rows = [(2.45, "Control", "copies in view", 4, "0.96"), (1.25, "Fixed request", "dedup proxy", 1, "0.87")]
     for y, name, sub, ncopies, p in rows:
         ax.text(0.1, y + 0.45, name, fontsize=8.2, weight="bold", color=INK, va="center")
         ax.text(0.1, y + 0.1, sub, fontsize=7.5, color=MUTED, va="center")
@@ -180,7 +180,7 @@ def fig1b():
     h, l = a1.get_legend_handles_labels()
     fig.legend(h, l, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.07), handletextpad=0.3,
                columnspacing=1.6)
-    a1.annotate("request held fixed, still 0.79 → 0.99:\nmost of the height is selection", xy=(0.03, 0.79),
+    a1.annotate("request held fixed, still 0.78 → 0.99:\nmost of the height is selection", xy=(0.03, 0.78),
                 xytext=(1.25, 0.68), fontsize=7.5, color=INK, va="center",
                 arrowprops=dict(arrowstyle="-", color=INK2, lw=0.6, shrinkB=4))
     a1.annotate("", xy=(2.0, 0.937), xytext=(2.0, 0.997),
