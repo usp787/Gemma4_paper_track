@@ -1,5 +1,6 @@
-# PDF files
+# PDF files, except the submitted paper
 *.pdf
+!paper/submission_v1/*.pdf
 
 # Slurm logs stay on Explorer: they name task ids. Only the folder itself is in git.
 logs/*
