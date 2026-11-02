@@ -1,0 +1,29 @@
+# baseline_nothink_args: baseline_nothink with one change, rules for tool-call arguments in both prompts
+# (prompts/system.md "Tool Calls: Arguments That Work", prompts/analyzer.md "Tool Calls"). Sampling, budgets, tools
+# and the analyzer are baseline_nothink's, byte for byte. It is the OPSD paper's step 2 (Gemma4_paper_track
+# baseline/README.md). Why, from baseline_nothink_v30_zip's traces (2026-10-10):
+# - With thinking off the model sometimes writes a call in JSON style, and later calls copy it from the context.
+# - read_file with start_line/end_line: 445 of 880 such calls malformed (keys like `start_line"`), none of 296
+#   without. ADK drops the bad keys silently and returns the file's first lines. A first slip is rare (6%), but 82%
+#   of the ranged reads after one repeat it.
+# - edit_file: 106 of 210 calls malformed. 96 of them carry JSON-escaped code (backslash-n, no real line breaks),
+#   and old_string is lost; 88% of the edits after an escaped one are escaped too.
+# The rules: required arguments only; other lines through `sed -n` in run_command; edit_file always with all three
+# arguments, and code with real line breaks.
+name: swe_baseline_agent
+model: gemma-4-31b-it-qat-w4a16-ct
+instruction: !include prompts/system.md
+tools:
+  - run_command
+  - read_file
+  - edit_file
+  - write_file
+  - get_status
+  - submit_patch
+  - get_code_neighbors
+  - search_similar_code
+  - get_code_subgraph
+  - agent_tool:
+      config_path: sub_agents/code_analyzer.yaml
+      skip_summarization: true
+generate_content_config: !include configs/sampling.yaml

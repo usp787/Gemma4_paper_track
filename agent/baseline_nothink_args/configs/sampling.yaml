@@ -1,0 +1,6 @@
+temperature: 0.2
+top_p: 0.95
+max_output_tokens: 16384
+thinking_config:
+  thinking_budget: 0      # thinking off (adk_submission 0.2.12 sends enable_thinking=false); baseline: 4096
+  include_thoughts: true

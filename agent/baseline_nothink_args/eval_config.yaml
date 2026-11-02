@@ -1,0 +1,9 @@
+# Per-task budgets read by the Kaggle scorer (only these four keys are honoured).
+# 12 h covers all ~120 hidden tasks run sequentially, including sandbox setup.
+# max_time_minutes is a hard asyncio timeout per task; the unsubmitted diff is still graded.
+# 120 x (4 min agent + ~1 min setup) + vLLM startup ~= 10.3 h, leaving ~1.7 h headroom.
+evaluation:
+  timeout_seconds: 120
+  max_tool_calls: 60
+  max_time_minutes: 4
+  max_turns: 100
