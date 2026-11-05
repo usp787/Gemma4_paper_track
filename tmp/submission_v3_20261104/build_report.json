@@ -1,0 +1,11 @@
+{
+  "source": "C:\\Users\\usp78\\Desktop\\Gemma4_challenge\\Gemma4_paper_track\\paper\\submission_v2\\submission_v2.docx",
+  "source_sha256": "9f1fed9c32270eab4cc345bb597943cf2c750904d8df1fc89faeabc163f24159",
+  "output": "C:\\Users\\usp78\\Desktop\\Gemma4_challenge\\Gemma4_paper_track\\paper\\submission_v3\\submission_v3.docx",
+  "applied_blue_suggestions": 18,
+  "removed_review_paragraphs": 19,
+  "user_ai_disclosure_preserved": true,
+  "Q6_deferred": true,
+  "native_equations": 2,
+  "whitespace_count_before_references": 3145
+}

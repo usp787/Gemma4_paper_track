@@ -1,0 +1,12 @@
+Microsoft Word counts for submission_v3, 2026-11-04
+
+Counted text before References: 3,162 words
+Limit: 3,000 words
+Over limit: 162 words
+Sections 1-9 only, including captions and table: 2,904 words
+Complete document including references: 3,372 words
+
+The 3,162-word count includes the title, subtitle, author line, abstract, headings, sections 1-9, figure caption, table caption and cells, repository link, and AI disclosure. Figure artwork, references, and page numbers are excluded.
+
+Counter: Microsoft Word Range.ComputeStatistics(wdStatisticWords).
+The text was not shortened to meet the limit in this version.

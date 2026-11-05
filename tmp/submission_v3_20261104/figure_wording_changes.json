@@ -1,0 +1,7 @@
+{
+  "budget warning in the result:\\nthe run ends from outside": "budget warning in the result:\\nobserved exit after warning",
+  "copies seal the escapes": "observed arm rates",
+  "\"With the request fixed, each step is a fresh draw from the same prompt: the chance to continue can \"\n            \"rise with k only\\nthrough which states keep looping (selection). The gap to the control is what the copies \"\n            \"add (reinforcement).\"": "\"Fixed requests remove accumulating copies; differences between arms can also reflect\\n\"\n            \"the states and survivors they reach.\"",
+  "request held fixed, still 0.78 → 0.99:\\nmost of the height is selection": "request held fixed, still 0.78 → 0.99:\\npersistence rises without new copies",
+  "copies close\\nthe last escapes": "observed arm\\ncurves differ"
+}

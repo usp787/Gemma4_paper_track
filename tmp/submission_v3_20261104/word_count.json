@@ -1,0 +1,12 @@
+﻿{
+    "Docx":  "C:\\Users\\usp78\\Desktop\\Gemma4_challenge\\Gemma4_paper_track\\paper\\submission_v3\\submission_v3.docx",
+    "Pdf":  "C:\\Users\\usp78\\Desktop\\Gemma4_challenge\\Gemma4_paper_track\\paper\\submission_v3\\submission_v3.pdf",
+    "Pages":  7,
+    "TotalDocumentWords":  3372,
+    "CountedWordsBeforeReferences":  3162,
+    "CoreBodyWordsSections1To9":  2904,
+    "Limit":  3000,
+    "WordsOverLimit":  162,
+    "CountScope":  "Title, subtitle, author line, abstract, headings, sections 1-9, captions, table, repository link, and AI disclosure. Figure artwork, references, and page numbers excluded.",
+    "Counter":  "Microsoft Word Range.ComputeStatistics(wdStatisticWords)"
+}

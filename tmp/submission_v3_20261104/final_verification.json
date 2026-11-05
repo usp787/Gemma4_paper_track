@@ -1,0 +1,34 @@
+{
+  "all_blue_suggestions_applied": true,
+  "review_annotations_removed": true,
+  "user_AI_disclosure_preserved": true,
+  "references_preserved": true,
+  "table_data_preserved": true,
+  "source_v2_preserved": true,
+  "native_equations": 2,
+  "pages_visually_verified": 7,
+  "word_counts": {
+    "Docx": "C:\\Users\\usp78\\Desktop\\Gemma4_challenge\\Gemma4_paper_track\\paper\\submission_v3\\submission_v3.docx",
+    "Pdf": "C:\\Users\\usp78\\Desktop\\Gemma4_challenge\\Gemma4_paper_track\\paper\\submission_v3\\submission_v3.pdf",
+    "Pages": 7,
+    "TotalDocumentWords": 3372,
+    "CountedWordsBeforeReferences": 3162,
+    "CoreBodyWordsSections1To9": 2904,
+    "Limit": 3000,
+    "WordsOverLimit": 162,
+    "CountScope": "Title, subtitle, author line, abstract, headings, sections 1-9, captions, table, repository link, and AI disclosure. Figure artwork, references, and page numbers excluded.",
+    "Counter": "Microsoft Word Range.ComputeStatistics(wdStatisticWords)"
+  },
+  "files": [
+    {
+      "name": "submission_v3.docx",
+      "bytes": 340175,
+      "sha256": "3409b2d86d4d1ab517fc5fb70929cad436c7b48b5a8c178cf9d2b5740c45659a"
+    },
+    {
+      "name": "submission_v3.pdf",
+      "bytes": 404384,
+      "sha256": "08fa9c213d16e1f4a3ea9f5d131eaaed5d0e9b2f1ac14a15cec1d0b535a5afa3"
+    }
+  ]
+}
