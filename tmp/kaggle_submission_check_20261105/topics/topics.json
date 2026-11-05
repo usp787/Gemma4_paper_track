@@ -1,0 +1,186 @@
+{
+  "resource": "topics",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion",
+  "cli_version": "2.2.5",
+  "cli_args": [
+    "competitions",
+    "topics",
+    "list",
+    "gemma-4-developer-agent-paper",
+    "--sort-by",
+    "recent",
+    "--format",
+    "json"
+  ],
+  "started_at_utc": "2026-11-05T22:29:54+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": [
+    {
+      "id": 756281,
+      "title": "Pre-registration hash",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-05T21:08:52.284000"
+    },
+    {
+      "id": 756259,
+      "title": "Pre-registration hash: one-line prompt rule vs. retry loops",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-05T19:26:38.498000"
+    },
+    {
+      "id": 753370,
+      "title": "27 fastapi tasks cannot pass in the provided sandbox (missing inline_snapshot and dirty_equals)",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-10-27T23:55:27.461000"
+    },
+    {
+      "id": 753871,
+      "title": "Paper Track: licences in a public notebook",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-10-29T16:43:30.680000"
+    },
+    {
+      "id": 755867,
+      "title": "Does a public repo count as prior publication for the Paper Track?",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-11-04T19:57:17.088000"
+    },
+    {
+      "id": 755652,
+      "title": " Pre-registration hash: statement information and post-training for budgeted code agents",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-04T06:45:02.189000"
+    },
+    {
+      "id": 755607,
+      "title": "Pre-registration: CodeGraphQA (how Gemma 4 reads code graphs)",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-04T03:18:35.978000"
+    },
+    {
+      "id": 749803,
+      "title": "Can derived localization labels from the task data be published (paper track)?",
+      "authorName": "",
+      "commentCount": 5,
+      "votes": 1,
+      "postDate": "2026-10-16T02:30:06.777000"
+    },
+    {
+      "id": 754899,
+      "title": "Paper Track — clarifications on timeline, experiment harness, and writeup mechanics.",
+      "authorName": "",
+      "commentCount": 2,
+      "votes": 0,
+      "postDate": "2026-11-02T08:49:46.225000"
+    },
+    {
+      "id": 755176,
+      "title": "Deadline Extension",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-02T23:22:28.931000"
+    },
+    {
+      "id": 754918,
+      "title": "Pre-registration hash: specification experiments on the never-solved public tasks",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-11-02T09:44:29.307000"
+    },
+    {
+      "id": 754697,
+      "title": "[Open-Source Research & Benchmark] AST-Guided Loops Verification for Gemma 4 SWE Agents (+116% Issue Resolution, -66% Context Tokens)",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-01T10:00:15.898000"
+    },
+    {
+      "id": 754667,
+      "title": "Pre-registration hash: frozen confirmatory analysis for our Paper Track submission (late disclosure)",
+      "authorName": "",
+      "commentCount": 0,
+      "votes": 0,
+      "postDate": "2026-11-01T05:30:13.821000"
+    },
+    {
+      "id": 749546,
+      "title": "Word Count",
+      "authorName": "",
+      "commentCount": 2,
+      "votes": 1,
+      "postDate": "2026-10-15T10:50:27.972000"
+    },
+    {
+      "id": 751413,
+      "title": "Non-fancy SFT idea is cool? + Private dataset until main track is over?",
+      "authorName": "",
+      "commentCount": 2,
+      "votes": 1,
+      "postDate": "2026-10-21T17:48:09.702000"
+    },
+    {
+      "id": 749463,
+      "title": "Prize eligibility if winners cannot attend the Google-hosted event in person?",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-10-15T02:10:16.199000"
+    },
+    {
+      "id": 751403,
+      "title": "Permitted independent validation for Paper Track research",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-10-21T17:09:37.985000"
+    },
+    {
+      "id": 751804,
+      "title": "Rule 3.6.b: does the code-sharing requirement apply to this paper track?",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-10-22T20:07:31.882000"
+    },
+    {
+      "id": 743255,
+      "title": "Clarification: number of writeups per team and eligibility across awards",
+      "authorName": "",
+      "commentCount": 13,
+      "votes": 0,
+      "postDate": "2026-09-25T11:47:16.622000"
+    },
+    {
+      "id": 750338,
+      "title": "Clarification on Prize Track Categorization, Tie-Breaker Timestamps, and Notebook Runtime",
+      "authorName": "",
+      "commentCount": 1,
+      "votes": 0,
+      "postDate": "2026-10-17T20:34:18.490000"
+    }
+  ],
+  "next_page_token": "2",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:29:56+00:00"
+}

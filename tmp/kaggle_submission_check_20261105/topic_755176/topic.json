@@ -1,0 +1,35 @@
+{
+  "resource": "topic",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/755176",
+  "cli_version": "2.2.5",
+  "started_at_utc": "2026-11-05T22:30:28+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "api_method": "forums_topic_show",
+  "request": {
+    "competition": "gemma-4-developer-agent-paper",
+    "topic_id": 755176,
+    "page_size": 200,
+    "page_token": null
+  },
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": {
+    "topic": {
+      "id": 755176,
+      "title": "Deadline Extension",
+      "url": "/competitions/gemma-4-developer-agent-paper/discussion/755176",
+      "postDate": "2026-11-02T23:22:28.931Z",
+      "authorName": "Mantas",
+      "authorUrl": "https://www.kaggle.com/mantasu",
+      "forumName": "Google - The Gemma 4 Developer Agent Paper Track",
+      "forumId": 12784402,
+      "content": "<p>Would it be possible to extend the Paper Track deadline? The agent competition closes only on Dec 2 and I'm sure many of us don't yet have the final results so I wonder if it would be possible to align the deadline a bit better?</p>"
+    },
+    "comments": []
+  },
+  "next_page_token": "",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:30:30+00:00"
+}

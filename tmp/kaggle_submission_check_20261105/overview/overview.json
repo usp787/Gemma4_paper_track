@@ -1,0 +1,33 @@
+{
+  "resource": "overview",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper",
+  "cli_version": "2.2.5",
+  "cli_args": [
+    "competitions",
+    "list",
+    "--search",
+    "gemma-4-developer-agent-paper",
+    "--format",
+    "json"
+  ],
+  "started_at_utc": "2026-11-05T22:29:54+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": [
+    {
+      "ref": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper",
+      "deadline": "2026-11-12T23:59:00.807000",
+      "category": "Featured",
+      "reward": "35,000 Usd",
+      "teamCount": 586,
+      "userHasEntered": true,
+      "userRank": 0
+    }
+  ],
+  "next_page_token": null,
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:29:56+00:00"
+}

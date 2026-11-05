@@ -1,0 +1,57 @@
+{
+  "resource": "topic",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/745712",
+  "cli_version": "2.2.5",
+  "started_at_utc": "2026-11-05T22:29:54+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "api_method": "forums_topic_show",
+  "request": {
+    "competition": "gemma-4-developer-agent-paper",
+    "topic_id": 745712,
+    "page_size": 200,
+    "page_token": null
+  },
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": {
+    "topic": {
+      "id": 745712,
+      "title": "Clarification: fully AI-assisted resources, individual entrants, and publicity",
+      "url": "/competitions/gemma-4-developer-agent-paper/discussion/745712",
+      "postDate": "2026-10-03T22:23:28.396Z",
+      "authorName": "tREKAS",
+      "authorUrl": "https://www.kaggle.com/trekas",
+      "commentCount": 3,
+      "forumName": "Google - The Gemma 4 Developer Agent Paper Track",
+      "forumId": 12784402,
+      "content": "<p>Hello organizers,</p>\n<p>Before entering, could you clarify three points for an adult individual resident of Lithuania?</p>\n<ol>\n<li><p>Is an unpublished diagnostic resource eligible if its original fixtures, source code, and writeup were generated with a Codex assistant, with full AI-use disclosure and actually executed, reproducible experiments? No model capability results would be claimed, and no third-party repository code or competition data is included.</p></li>\n<li><p>Can an individual receive a prize without a company, using the required individual eligibility and foreign tax documents? This asks about your payout requirements, not Lithuanian tax advice.</p></li>\n<li><p>The existing Photo Inquiry topic (<a href=\"https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/745326\" target=\"_blank\">https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/745326</a>) asks about keeping the entrant's photograph private. Could you clarify whether the same protection can cover the entrant's voice and any on-camera presentation requirement, for both entering and receiving a prize?</p></li>\n</ol>\n<p>The planned submission is a small factorial Python test-validation resource for the Tasks &amp; Benchmarks / Best New Resource topic. I have not joined or submitted it yet. Thank you.</p>"
+    },
+    "comments": [
+      {
+        "id": 3533329,
+        "authorName": "Ashley Oldacre",
+        "postDate": "2026-10-05T21:46:07.883Z",
+        "content": "<p>Hello <a href=\"/Trekas\" target=\"_blank\">@Trekas</a>, \nTo answer the following  2 questions: \n2) Yes, individual Kagglers can receive a prize if they are unaffiliated with a company\n3) Yes, we are able to make reasonable accommodations around using your likeness in the event you are selected as a winner.</p>"
+      },
+      {
+        "id": 3533328,
+        "authorName": "Elan Markowitz",
+        "postDate": "2026-10-05T21:38:51.223Z",
+        "content": "<p>Answering part 1 for now. Using Codex and other resources is permitted but it is your responsibility to follow terms of service, and make sure you meet all the submission requirements of the competition. Use of coding assistants to generate code is absolutely acceptable (might I suggest <a href=\"https://antigravity.google/?gclsrc=aw.ds&amp;gad_source=1&amp;gad_campaignid=24305882099&amp;gbraid=0AAAABE0JD34jHPiqeC-djohaiMSRUzZ2_&amp;gclid=CjwKCAjwlY3WBhANEiwApsNrLd4MKkUq0v6gcGwp00k6GxsdtwY5Ctp8jDqrun3I_i8Zu5NXb6Ga8RoCZ1YQAvD_BwE\" target=\"_blank\">Google Antigravity</a> ).</p>\n<p>I would caution against relying solely on LLMs for the written part. Purely LLM generated \"slop\" will not score well. However, if tastefully used, LLMs can improve the writing quality and clarity. </p>\n<p>We will have an answer for the other questions shortly. </p>",
+        "replies": [
+          {
+            "id": 3540067,
+            "authorName": "Sylvite",
+            "postDate": "2026-10-17T01:17:26.083Z",
+            "content": "<p>When trying to install Antigravity, its language_server.exe was flagged by my antivirus as infected with malware IDP.ARES.generic . I downloaded the installer from that link above, which appears to be the official site. Nevertheless, I took no chances and quarantined that .exe and stopped installation.</p>"
+          }
+        ]
+      }
+    ]
+  },
+  "next_page_token": "",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:29:56+00:00"
+}

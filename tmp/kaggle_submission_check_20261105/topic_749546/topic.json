@@ -1,0 +1,52 @@
+{
+  "resource": "topic",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/749546",
+  "cli_version": "2.2.5",
+  "started_at_utc": "2026-11-05T22:30:28+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "api_method": "forums_topic_show",
+  "request": {
+    "competition": "gemma-4-developer-agent-paper",
+    "topic_id": 749546,
+    "page_size": 200,
+    "page_token": null
+  },
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": {
+    "topic": {
+      "id": 749546,
+      "title": "Word Count",
+      "url": "/competitions/gemma-4-developer-agent-paper/discussion/749546",
+      "postDate": "2026-10-15T10:50:27.972Z",
+      "authorName": "Ramesh Bhaskaramurthy",
+      "authorUrl": "https://www.kaggle.com/gutchapagutchapa",
+      "votes": 1,
+      "commentCount": 2,
+      "forumName": "Google - The Gemma 4 Developer Agent Paper Track",
+      "forumId": 12784402,
+      "content": "<p>Scope: 3,000 words maximum, reporting original, unpublished research\". It doesn't say whether the appendix or references count. Any one??? All inclusive 3000 or just the main content &gt;&gt;&gt;</p>"
+    },
+    "comments": [
+      {
+        "id": 3545695,
+        "authorName": "Elan Markowitz",
+        "postDate": "2026-10-27T18:02:47.797Z",
+        "content": "<p>References will not count. Appendix will not be used for main evaluation so treat is as supplementary material. I.e. can support verifiability like code release but do not expect it to be read guaranteed.  </p>",
+        "replies": [
+          {
+            "id": 3546765,
+            "authorName": "Sylvite",
+            "postDate": "2026-10-29T17:31:34.267Z",
+            "content": "<p>Do captions count toward the word count?</p>"
+          }
+        ]
+      }
+    ]
+  },
+  "next_page_token": "",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:30:30+00:00"
+}

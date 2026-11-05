@@ -1,0 +1,20 @@
+# 27 fastapi tasks cannot pass in the provided sandbox (missing inline_snapshot and dirty_equals)
+
+<p>While labeling failures for a paper-track study, I found 27 of the 129 public tasks that no agent can resolve in the provided subprocess sandbox, whatever patch it writes. Their target tests import <code>inline_snapshot</code> or <code>dirty_equals</code>. Neither package is installed in the sandbox environment, and the environment has no pip, so test collection fails before a single test runs.</p>
+<p>Evidence: across 596 runs (Gemma 4 E4B, 3 seeds on all 129 tasks; Gemma 4 31B QAT, 3 seeds on a 40-task subset plus 1 seed on the other 89), every logged run on these 27 tasks fails at test collection and none resolved. In all but one the error names one of the two modules; the exception is a run whose own patch had a syntax error, which stopped collection first. All 27 are fastapi tasks, which is about 21% of the public set and 40% of the fastapi tasks.</p>
+<p>The tasks:</p>
+<p>fastapi_11355, fastapi_12942, fastapi_13713, fastapi_13786, fastapi_14099, fastapi_14246, fastapi_14262, fastapi_14297, fastapi_14303, fastapi_14349, fastapi_14356, fastapi_14360, fastapi_14361, fastapi_14371, fastapi_14430, fastapi_14455, fastapi_14459, fastapi_14482, fastapi_14485, fastapi_14512, fastapi_14583, fastapi_14605, fastapi_14791, fastapi_14953, fastapi_14962, fastapi_14964, fastapi_15023</p>
+<p>What it means in practice:</p>
+<ol>
+<li>A resolve rate on the public set has a ceiling of about 79% in this sandbox, and any comparison that includes these tasks counts 27 guaranteed failures for every agent.</li>
+<li>Per-repository numbers for fastapi are hit hardest.</li>
+<li>For the main competition, it is worth asking whether the hidden set has the same issue.</li>
+</ol>
+<p>To check it yourself, open <code>test_outputs/&lt;task&gt;.log</code> for any of these tasks in a results folder: the log shows <code>ModuleNotFoundError: No module named 'inline_snapshot'</code> (or <code>'dirty_equals'</code>) during collection.</p>
+<p>Question for the hosts: is this intended, and will scoring install these test dependencies or exclude these tasks? Either way it would help to know before final runs.</p>
+<p>The script that finds these tasks from any results folder is <code>exploratory_extract.py</code> in the replay bundle for my writeup, and I am happy to share it here if useful.</p>
+
+## Elan Markowitz — comment 3550172, reply to topic
+2026-11-04T21:57:54.437Z
+
+<p>The scoring is done on private repos so does not include these tasks. Also, this is probably a better post for the code track rather than the paper track discussion :)</p>

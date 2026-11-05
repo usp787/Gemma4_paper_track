@@ -1,0 +1,127 @@
+{
+  "resource": "topic",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/743255",
+  "cli_version": "2.2.5",
+  "started_at_utc": "2026-11-05T22:29:54+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "api_method": "forums_topic_show",
+  "request": {
+    "competition": "gemma-4-developer-agent-paper",
+    "topic_id": 743255,
+    "page_size": 200,
+    "page_token": null
+  },
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": {
+    "topic": {
+      "id": 743255,
+      "title": "Clarification: number of writeups per team and eligibility across awards",
+      "url": "/competitions/gemma-4-developer-agent-paper/discussion/743255",
+      "postDate": "2026-09-25T11:47:16.622Z",
+      "authorName": "Shiva Shankar",
+      "authorUrl": "https://www.kaggle.com/shivashankar98",
+      "commentCount": 13,
+      "forumName": "Google - The Gemma 4 Developer Agent Paper Track",
+      "forumId": 12784402,
+      "content": "<p>Hi, thanks for hosting the Paper Track. A few questions about the rules so we can plan our submissions correctly:</p>\n<ol>\n<li>The rules say a team may select up to two Final Submissions for judging. For the Paper Track, does that mean a team can have at most two writeups judged, or can a team submit a separate writeup for each of the three awards (Best Paper, Best New Resource, Best New Application)?</li>\n<li>Can a single writeup be considered for, or win, more than one of the three awards?</li>\n<li>Are Best New Resource and Best New Application scored with the same five criteria (novelty, quality, relevance, verifiability, clarity) as Best Paper, or judged separately?</li>\n<li>For a resource entry, is it acceptable to publish a dataset that is rebuilt from the public upstream GitHub repositories (fastapi, rich, requests, httpx), such as regenerated code graphs and embeddings, given the rule against redistributing Competition Data?</li>\n</ol>\n<p>Thank you!</p>"
+    },
+    "comments": [
+      {
+        "id": 3542975,
+        "authorName": "Hersh Mittelman",
+        "postDate": "2026-10-22T18:13:20.360Z",
+        "content": "<p><a href=\"/elanmark\" target=\"_blank\">@elanmark</a> Thanks for confirming that a team can submit at most two write-ups. When we create a second writeup, the form says: \"You've already submitted to this competition. To submit this writeup, you'll first need to unsubmit your previous writeup.\" Is there a way for one team to have two writeups submitted at the same time, or should each team plan on one?</p>"
+      },
+      {
+        "id": 3542235,
+        "authorName": "Shiva Shankar",
+        "postDate": "2026-10-21T16:19:25.920Z",
+        "content": "<p>Hi <a href=\"/Elan\" target=\"_blank\">@Elan</a> Markowitz, thank you for your answer to Q4 on 29 Sep (\"I believe that should be acceptable with citation and with linking to the Kaggle dataset … I will double check our exact rules on this front\"). Before we publish, could you confirm whether the release below complies with rule 2.4.b?</p>\n<p>The planned Kaggle dataset contains only:</p>\n<ul>\n<li>152 code graphs (JSON), one per parent commit of 152 merged public pull requests in fastapi, httpx, requests and rich, rebuilt from public GitHub with our open-source builder (module/class/function nodes with signatures and docstrings; calls, contains, imports, inherits and tests edges).</li>\n<li>304 embedding files: CodeRankEmbed vectors (float16 .npz) plus metadata for those graphs.</li>\n<li>pr_ids.tsv: repository, PR number and GitHub URL for the 152 PRs. No PR titles, bodies or other PR text.</li>\n<li>pr_gold.jsonl: for each PR, the files and function/class names it changed. No PR text.</li>\n<li>The builder, schema and benchmark scripts (Apache-2.0), with upstream licence notices (MIT, Apache-2.0, BSD-3-Clause).</li>\n</ul>\n<p>It contains no Competition Data: no task statements, gold or test patches, official graphs or embeddings, and no graphs built at any official task base commit. We excluded every PR whose parent or merge commit matches an official base commit, and an automated scan for official commit hashes and instance ids reports 0 hits. The dataset will cite and link the competition dataset.</p>\n<p>Can you explicitly confirm that publishing this dataset under Apache-2.0 (with the upstream notices) complies with rule 2.4.b? Thank you.</p>",
+        "replies": [
+          {
+            "id": 3545676,
+            "authorName": "Elan Markowitz",
+            "postDate": "2026-10-27T17:41:36.987Z",
+            "content": "<p>Yep can confirm!</p>"
+          }
+        ]
+      },
+      {
+        "id": 3532989,
+        "authorName": "Anh-Vu Mai-Nguyen",
+        "postDate": "2026-10-05T08:06:48.267Z",
+        "content": "<p>Thank you for the answers above. +1 to the open word-count question from Fasil and dval: do the title, abstract, figure/table captions and the reference list count toward the 3,000-word limit? One related case: if a paper is provided as a PDF through the Public Project Link rather than in the Writeup body, does the same limit and counting apply? Thank you.</p>",
+        "replies": [
+          {
+            "id": 3545675,
+            "authorName": "Elan Markowitz",
+            "postDate": "2026-10-27T17:38:49.263Z",
+            "content": "<p>The PDF will have the same word limit. All \"judged\" text is included in the word count except figures and references. The PDF will be judged on its own, ignoring the kaggle writeup component. But yes, title and abstract will, captions, and tables will count towards the word count. </p>"
+          }
+        ]
+      },
+      {
+        "id": 3530171,
+        "authorName": "Elan Markowitz",
+        "postDate": "2026-09-29T17:38:53.917Z",
+        "content": "<p>Great questions! </p>\n<ol>\n<li>A team can submit at most two write-ups. There is only one submission track, and the judges will determine the eligibility for each prize. We are looking for quality over quantity. </li>\n<li>Yes. A single write-up can be considered for more than one award, however, it will only be eligible to win one. If it is Best Paper it will win Best Paper and then no longer be eligible for the resource or application prize.</li>\n<li>The same criteria will be applied to each, but in the context of that prize. Meaning the <em>novelty, quality, and relevance</em> will be scored in terms of the new resource or application. </li>\n<li>I believe that should be acceptable with citation and with linking to the Kaggle dataset. If you publish new graphs and embeddings that link to the Kaggle dataset, you would not be redistributing the public dataset. I will double check our exact rules on this front. </li>\n</ol>",
+        "replies": [
+          {
+            "id": 3531238,
+            "authorName": "Fasil",
+            "postDate": "2026-10-01T14:38:02.713Z",
+            "content": "<p>Thanks for these answers. Two follow-ups for my entry:</p>\n<p>(1) Data release. May a public Kaggle dataset linked from my Writeup contain agent run traces from the public training tasks? The traces include code from the task repositories (fastapi, rich, requests, under their open-source licences) that the agent printed while working, plus the agent's own patches. I would remove every problem statement and hint, and include a script that restores them from the competition data for people who have accepted the rules. Gold patches and test patches would never be included. If that isn't acceptable, may I release only my labels, tables and scripts?</p>\n<p>(2) Word count. How is the 3,000-word limit counted? Do references, tables and figure captions count, and is there an official counter?</p>\n<p>Thank you!</p>",
+            "replies": [
+              {
+                "id": 3545672,
+                "authorName": "Elan Markowitz",
+                "postDate": "2026-10-27T17:37:03.727Z",
+                "content": "<p>Yes, it can include such traces. Please cite and reference the upstream license for the data. </p>"
+              }
+            ]
+          },
+          {
+            "id": 3531983,
+            "authorName": "dval",
+            "postDate": "2026-10-02T23:58:26.407Z",
+            "content": "<p>Following up on your answer to question 4: has the permission to release regenerated graphs now been confirmed against the competition rules? We are preparing a Paper Track resource that audits code graphs and generates comparison graphs from public upstream repositories at recorded pre-fix commits. We would cite the competition and upstream licenses, and would not release the provided graphs or embeddings, problem statements, gold patches, or evaluation test patches. Could you confirm whether independently regenerated graph files (including upstream code text where its license allows this) may be made publicly available with the Writeup? If not, we would release only our own audit/generation code, synthetic fixtures, and aggregate results, with instructions for eligible participants to obtain the competition assets themselves. Are there additional restrictions on that code-and-aggregates-only release?</p>\n<p>I also support Fasil’s question about how the 3,000-word limit counts references, tables and figure captions, and whether an official counter is available.</p>",
+            "replies": [
+              {
+                "id": 3545670,
+                "authorName": "Elan Markowitz",
+                "postDate": "2026-10-27T17:36:28.593Z",
+                "content": "<p>Yes regenerated graph files is allowable with appropriate licensing. </p>\n<p>Word limit includes table and captions but not figures and references. </p>"
+              }
+            ]
+          },
+          {
+            "id": 3533924,
+            "authorName": "Shiva Shankar",
+            "postDate": "2026-10-07T03:41:22.310Z",
+            "content": "<p>Thank you <a href=\"/elanmark\" target=\"_blank\">@elanmark</a> for the detailed and clear answers on team limits, award cross-eligibility, and upstream graph releases. This makes planning our two final write-ups much more straightforward.</p>\n<p>Echoing the follow-ups from <a href=\"/Fasil\" target=\"_blank\">@Fasil</a>, <a href=\"/dval\" target=\"_blank\">@dval</a>, and <a href=\"/Anh-Vu\" target=\"_blank\">@Anh-Vu</a> Mai-Nguyen regarding the writeup submission mechanics:</p>\n<ol>\n<li><strong>Word Count Scope:</strong> Could you clarify whether references, figure/table captions, and mathematical appendices are excluded from the 3,000-word count, or if there is an official counter used during submission?</li>\n<li><strong>PDF vs. Markdown Formats:</strong> For entries providing a complete publication-grade PDF via the Public Project Link (such as on arXiv or GitHub), does the Kaggle writeup body serve as an executive summary, with the full PDF considered as the primary artifact for judging?</li>\n</ol>\n<p>Thanks again to the Google Research team for organizing this track!</p>",
+            "replies": [
+              {
+                "id": 3545666,
+                "authorName": "Elan Markowitz",
+                "postDate": "2026-10-27T17:32:04.903Z",
+                "content": "<p>All words of the \"judged\" text count towards the word count including captions and tables (but not figures and references). We do not yet have an official word counter released. If the paper relies on mathematical proofs, please include those or shortened versions in the main paper. Supplementary material not count towards the word limit. </p>\n<p>In the case of a PDF submission, we will just be judging the PDF as the writeup. Recommend using the Kaggle writeup as an abstract. However, it will not be used for judging and will not count towards the word count. </p>"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 3528198,
+        "authorName": "agrover112",
+        "postDate": "2026-09-25T16:25:33.057Z",
+        "content": "<p>These are interesting questions! I second this.</p>"
+      }
+    ]
+  },
+  "next_page_token": "",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:29:56+00:00"
+}

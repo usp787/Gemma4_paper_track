@@ -1,0 +1,43 @@
+{
+  "resource": "topic",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/751804",
+  "cli_version": "2.2.5",
+  "started_at_utc": "2026-11-05T22:30:28+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "api_method": "forums_topic_show",
+  "request": {
+    "competition": "gemma-4-developer-agent-paper",
+    "topic_id": 751804,
+    "page_size": 200,
+    "page_token": null
+  },
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": {
+    "topic": {
+      "id": 751804,
+      "title": "Rule 3.6.b: does the code-sharing requirement apply to this paper track?",
+      "url": "/competitions/gemma-4-developer-agent-paper/discussion/751804",
+      "postDate": "2026-10-22T20:07:31.882Z",
+      "authorName": "Md Tanjil Islam",
+      "authorUrl": "https://www.kaggle.com/tanjil360",
+      "commentCount": 1,
+      "forumName": "Google - The Gemma 4 Developer Agent Paper Track",
+      "forumId": 12784402,
+      "content": "<p>Hello,</p>\n<p>I'm preparing a research paper for the Gemma 4 Developer Agent Paper Track. The work evaluates code-graph-guided repository retrieval and a local Gemma 4 reranker, using the external Loc-Bench V1 dataset. It does not use competition-provided data.</p>\n<p>Could you clarify whether Rule 3.6.b's requirement to share relevant competition code on Kaggle applies to this paper track when the work uses no Competition Data? In particular, would a public GitHub repository containing the benchmark implementation and documentation be permitted, or must the code also be shared through a Kaggle notebook or competition forum?</p>\n<p>I would also appreciate clarification on whether reporting aggregate experimental metrics derived from an external dataset with no stated licence raises any specific competition eligibility concern.</p>\n<p>Thank you.</p>"
+    },
+    "comments": [
+      {
+        "id": 3545687,
+        "authorName": "Elan Markowitz",
+        "postDate": "2026-10-27T17:51:27.073Z",
+        "content": "<p>Github should work for sharing code. </p>\n<p>You should not be breaking any permissions to compete in this competition. If you have the rights to evaluate on the external dataset that should be fine. </p>"
+      }
+    ]
+  },
+  "next_page_token": "",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:30:30+00:00"
+}

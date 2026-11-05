@@ -1,0 +1,43 @@
+{
+  "resource": "topic",
+  "competition": "gemma-4-developer-agent-paper",
+  "source_url": "https://www.kaggle.com/competitions/gemma-4-developer-agent-paper/discussion/755867",
+  "cli_version": "2.2.5",
+  "started_at_utc": "2026-11-05T22:30:28+00:00",
+  "pagination": "One requested page; not a complete archive.",
+  "api_method": "forums_topic_show",
+  "request": {
+    "competition": "gemma-4-developer-agent-paper",
+    "topic_id": 755867,
+    "page_size": 200,
+    "page_token": null
+  },
+  "exit_code": 0,
+  "attempts": 1,
+  "ok": true,
+  "data": {
+    "topic": {
+      "id": 755867,
+      "title": "Does a public repo count as prior publication for the Paper Track?",
+      "url": "/competitions/gemma-4-developer-agent-paper/discussion/755867",
+      "postDate": "2026-11-04T19:57:17.088Z",
+      "authorName": "arabenjamin",
+      "authorUrl": "https://www.kaggle.com/arabenjamin",
+      "commentCount": 1,
+      "forumName": "Google - The Gemma 4 Developer Agent Paper Track",
+      "forumId": 12784402,
+      "content": "<p>Hello !\nI have a quick question, I ran a fine-tuning experiment on Gemma 4 E4B in September. My notes and some results have been in a public GitHub repo since then, as project documentation. It has never been a paper, preprint, or blog post.</p>\n<p>My submission would report that experiment along with new analysis and a new held-out test done for this track. Would that be eligible? Happy to disclose the repo in the writeup.</p>\n<p>Thank you in advance !</p>"
+    },
+    "comments": [
+      {
+        "id": 3550169,
+        "authorName": "Elan Markowitz",
+        "postDate": "2026-11-04T21:50:11.473Z",
+        "content": "<p>Prior github repo would not count as a prior publication. So yes, eligible. </p>"
+      }
+    ]
+  },
+  "next_page_token": "",
+  "notices": [],
+  "finished_at_utc": "2026-11-05T22:30:30+00:00"
+}
