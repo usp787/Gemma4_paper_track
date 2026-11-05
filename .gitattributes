@@ -3,3 +3,13 @@
 *.slurm  text eol=lf
 *.py     text eol=lf
 *.tsv    text eol=lf
+
+# Repository documentation and Git rules use stable LF endings
+*.md           text eol=lf
+*.txt          text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+
+# Keep manuscript containers byte-for-byte intact on checkout and commit
+*.docx   binary
+*.pdf    binary

@@ -1,6 +1,12 @@
-# PDF files, except the submitted paper
+# PDF files, except the archived submission and current refined manuscript
 *.pdf
 !paper/submission_v1/*.pdf
+!paper/submission_v3/submission_v3_refine.pdf
+
+# Local review outputs, personal tool settings, and Office lock files
+/tmp/
+/.claude/settings.local.json
+~$*
 
 # Slurm logs stay on Explorer: they name task ids. Only the folder itself is in git.
 logs/*

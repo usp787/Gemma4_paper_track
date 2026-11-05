@@ -2,7 +2,8 @@
 
 Code and records for the paper **When Coding Agents Repeat: Persistence, Selection, and the Limits of Loop Breaking** (*A study of repeated tool calls in Gemma 4's coding agent*). It is our entry to Kaggle's [Google – The Gemma 4 Developer Agent Paper Track](https://www.kaggle.com/competitions/gemma-4-developer-agent-paper).
 
-- **Paper:** [paper/submission_v1/submission_v1.pdf](paper/submission_v1/submission_v1.pdf), the version submitted to Kaggle. Its source and the Writeup files are in [paper/submission_v1/](paper/submission_v1/).
+- **Current manuscript:** [PDF](paper/submission_v3/submission_v3_refine.pdf) and [Word source](paper/submission_v3/submission_v3_refine.docx), with figures and the word-count record in [paper/submission_v3/](paper/submission_v3/).
+- **Earlier Kaggle submission:** [submission_v1.pdf](paper/submission_v1/submission_v1.pdf), with its source and Writeup files in [paper/submission_v1/](paper/submission_v1/).
 - **Author:** Jiarui Zha (zha.j@northeastern.edu)
 
 ## The study in brief
