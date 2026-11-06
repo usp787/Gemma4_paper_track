@@ -4,6 +4,6 @@ We study why Gemma 4 31B, as a coding agent with thinking off, sends the same to
 
 ## Paper and supporting code
 
-[Full research paper (PDF)](https://github.com/usp787/Gemma4_paper_track/blob/main/paper/submission_v3/submission_v3_refine.pdf)
+[Full research paper (PDF)](https://github.com/usp787/Gemma4_paper_track/blob/main/paper/submission_v3/submission_v3.1.pdf)
 
 [Code, experiment records, and reproduction instructions](https://github.com/usp787/Gemma4_paper_track)

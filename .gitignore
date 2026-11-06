@@ -1,7 +1,7 @@
 # PDF files, except the archived submission and current refined manuscript
 *.pdf
 !paper/submission_v1/*.pdf
-!paper/submission_v3/submission_v3_refine.pdf
+!paper/submission_v3/submission_v3.1.pdf
 
 # Local review outputs, personal tool settings, and Office lock files
 /tmp/
